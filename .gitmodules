@@ -1,0 +1,6 @@
+[submodule "packages/UnionArrays"]
+	path = packages/UnionArrays
+	url = https://github.com/lucifer1004/UnionArrays.jl
+[submodule "packages/FoldsCUDA"]
+	path = packages/FoldsCUDA
+	url = https://github.com/lucifer1004/FoldsCUDA.jl

@@ -220,7 +220,7 @@ class DEMSolverConfig:
         self.global_damping = 0.0;
         # Time step, a global parameter
         self.dt : Real = 2.63e-5  # Larger dt might lead to unstable results.
-        self.target_time : Real = 10.0
+        self.target_time: Real = 0.5
         # No. of steps for run, a global parameter
         self.nsteps : Integer = int(self.target_time / self.dt)
         self.saving_interval_time : Real = 0.05

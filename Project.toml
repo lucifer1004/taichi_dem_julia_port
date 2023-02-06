@@ -1,0 +1,20 @@
+name = "DEMPort"
+uuid = "2b8eeaea-595a-4799-abf9-3119f8bfe1db"
+authors = ["Gabriel Wu <wuzihua@pku.edu.cn>"]
+version = "0.1.0"
+
+[deps]
+Adapt = "79e6a3ab-5dfb-504d-930d-738a2a938a0e"
+Atomix = "a9b6321e-bd34-4604-b9c9-b65b8de01458"
+CUDA = "052768ef-5323-5732-b1bb-66c8b64840ba"
+Configurations = "5218b696-f38b-4ac9-8b61-a12ec717816d"
+EnumX = "4e289a0a-7415-4d19-859d-a7e5c4648b56"
+FLoops = "cc61a311-1640-44b5-9fba-1b764f453329"
+FoldsCUDA = "6cd66ae4-5932-4b96-926d-e73e578e42cc"
+LinearAlgebra = "37e2e46d-f89d-539d-b4ee-838fcccc9c8e"
+MLStyle = "d8e11817-5142-5d16-987a-aa16d5891078"
+Morton = "2a6d852e-3fac-5a38-885c-fe708af2d09e"
+Quaternionic = "0756cd96-85bf-4b6f-a009-b5012ea7a443"
+Referenceables = "42d2dcc6-99eb-4e98-b66c-637b7d73030e"
+StaticArrays = "90137ffa-7385-5640-81b9-e52037218182"
+UnionArrays = "d6dd79e4-993b-11e9-1366-0de1c9fe1122"
