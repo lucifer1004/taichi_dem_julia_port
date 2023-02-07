@@ -273,7 +273,7 @@ function main(cfg_filename)
 
                     if offset > 0
                         z = zeros(Vec3)
-                        contacts[offset] = ContactDefault(i, j, 1, 1, z, z, z, z)
+                        contacts[offset] = ContactDefault(i, j, 1, 1, z, z, z, z, z)
                         contact_active[offset] = true
                         contact_bonded[offset] = false
                         ev = true
@@ -314,7 +314,7 @@ function main(cfg_filename)
 
                     # Contact evaluation (with contact model)
                     if contact_bonded[offset]
-                        # 𝐤 = (grains[i].𝐤 + grains[j].𝐤) / 2.0
+                        𝐤 = (grains[i].𝐤 + grains[j].𝐤) / 2.0
                         𝐝ᵢ = 𝐑 * grains[i].𝐯 * dt
                         𝐝ⱼ = 𝐑 * grains[j].𝐯 * dt
                         𝛉ᵢ = 𝐑 * grains[i].𝛚 * dt
@@ -383,13 +383,77 @@ function main(cfg_filename)
                             contacts[offset].j,
                             contacts[offset].midᵢ,
                             contacts[offset].midⱼ,
+                            𝐤,
                             𝐅ᵢ,
                             𝛕ᵢ,
                             𝛕ⱼ,
                             zero(Vec3),
                         )
                     else # Non-bonded, use Hertz-Mindlin
+                        gap = Lᵢ - grains[i].r - grains[j].r # gap must be negative to ensure an intact contact
+                        Δn = abs(gap)
+                        𝐤 = grains[i].𝐤 + normalize(grains[j].𝐤 - grains[i].𝐤) * (grains[i].r - Δn)
+                        𝐤ᵢ = 𝐤 - grains[i].𝐤
+                        𝐤ⱼ = 𝐤 - grains[j].𝐤
+                        𝐯𝑐ᵢ = grains[i].𝛚 × 𝐤ᵢ + grains[i].𝐯
+                        𝐯𝑐ⱼ = grains[j].𝛚 × 𝐤ⱼ + grains[j].𝐯
+                        𝐯𝑐 = 𝐑 * (𝐯𝑐ⱼ - 𝐯𝑐ᵢ)
+                    
+                        midᵢ = grains[i].mid
+                        midⱼ = grains[j].mid
+                        νᵢ = materials[midᵢ].ν
+                        Eᵢ = materials[midᵢ].E
+                        νⱼ = materials[midⱼ].ν
+                        Eⱼ = materials[midⱼ].E
+                        Y✶ = 1.0 / ((1.0 - νᵢ^2) / Eᵢ + (1.0 - νⱼ^2) / Eⱼ)
+                        G✶ = 1.0 / (2.0 * (2.0 - νᵢ) * (1.0 + νᵢ) / Eᵢ + 2.0 * (2.0 - νⱼ) * (1.0 + νⱼ) / Eⱼ)
+                        R✶ = 1.0 / (1.0 / grains[i].r + 1.0 / grains[j].r)
+                        m✶ = 1.0 / (1.0 / grains[i].m + 1.0 / grains[j].m)
+                        β = log(surfaces[midᵢ, midⱼ].e) / √(log(surfaces[midᵢ, midⱼ].e)^2 + π^2)
+                        Sₙ = 2.0 * Y✶ * √(R✶ * Δn)
+                        Sₜ = 8.0 * G✶ * √(R✶ * Δn)
+                        kₙ = 4.0 / 3.0 * Y✶ * √(R✶ * Δn)
 
+                        # TODO: Check whether gamma_n >= 0
+                        γₙ = -2.0 * β * √(5.0 / 6.0 * Sₙ * m✶)
+                        kₜ = 8.0 * G✶ * √(R✶ * Δn)
+
+                        # TODO: Check whether gamma_t >= 0
+                        γₜ = -2.0 * β * √(5.0 / 6.0 * Sₜ * m✶)
+
+                        # Shear displacement increments (remove the normal direction)
+                        Δ𝐬 = 𝐯𝑐 * dt .* Vec3(0.0, 1.0, 1.0)
+                        𝐬 = contacts[offset].𝐬 + Δ𝐬
+                        F₁ = -kₙ * gap - γₙ * 𝐯𝑐[1]
+                        𝐅𝑡 = -kₜ * 𝐬
+                        if norm(𝐅𝑡) >= surfaces[midᵢ, midⱼ].μ * F₁ # Sliding
+                            ratio = surfaces[midᵢ, midⱼ].μ * F₁ / norm(𝐅𝑡)
+                            F₂ = ratio * 𝐅𝑡[2]
+                            F₃ = ratio * 𝐅𝑡[3]
+                            𝐬 = Vec3(𝐬[1], F₂ / kₜ, F₃ / kₜ)
+                        else # No sliding
+                            F₂ = 𝐅𝑡[2] - γₜ * 𝐯𝑐[2]
+                            F₃ = 𝐅𝑡[3] - γₜ * 𝐯𝑐[3]
+                        end
+
+                        𝐅ᵢ = Vec3(F₁, F₂, F₃)
+                        𝐅ᵢ𝑔 = inv(𝐑) * -𝐅ᵢ
+                        atomic_add_vec3!(forces, 3 * i - 2, 𝐅ᵢ𝑔)
+                        atomic_add_vec3!(forces, 3 * j - 2, -𝐅ᵢ𝑔)
+                        atomic_add_vec3!(moments, 3 * i - 2, 𝐤ᵢ × 𝐅ᵢ𝑔)
+                        atomic_add_vec3!(moments, 3 * j - 2, 𝐤ⱼ × -𝐅ᵢ𝑔)
+
+                        contacts[offset] = ContactDefault(
+                            contacts[offset].i,
+                            contacts[offset].j,
+                            contacts[offset].midᵢ,
+                            contacts[offset].midⱼ,
+                            𝐤,
+                            𝐅ᵢ,
+                            contacts[offset].𝛕ᵢ,
+                            contacts[offset].𝛕ⱼ,
+                            𝐬,
+                        )
                     end
                 end
             end

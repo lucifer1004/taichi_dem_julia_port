@@ -59,6 +59,7 @@ Base.@kwdef struct Contact{I <: Integer, F <: AbstractFloat}
     j::I
     midᵢ::I
     midⱼ::I
+    𝐤::SVector{3, F}
     𝐅ᵢ::SVector{3, F}
     𝛕ᵢ::SVector{3, F}
     𝛕ⱼ::SVector{3, F}
