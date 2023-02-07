@@ -28,20 +28,20 @@ end
 
 const SurfaceDefault = Surface{Float64}
 
-struct Grain{IT <: Integer, FT <: AbstractFloat}
-    id::IT
-    mid::IT
-    V::FT
-    m::FT
-    r::FT
-    r₀::FT
-    𝐤::SVector{3, FT}
-    𝐯::SVector{3, FT}
-    𝐚::SVector{3, FT}
-    𝐪::Quaternion{FT}
-    𝛚::SVector{3, FT}
-    d𝛚::SVector{3, FT}
-    𝐈::SMatrix{3, 3, FT, 9}
+struct Grain{I <: Integer, F <: AbstractFloat}
+    id::I
+    mid::I
+    V::F
+    m::F
+    r::F
+    r₀::F
+    𝐤::SVector{3, F}
+    𝐯::SVector{3, F}
+    𝐚::SVector{3, F}
+    𝐪::Quaternion{F}
+    𝛚::SVector{3, F}
+    d𝛚::SVector{3, F}
+    𝐈::SMatrix{3, 3, F, 9}
 end
 
 const GrainDefault = Grain{Int32, Float64}
@@ -59,7 +59,6 @@ Base.@kwdef struct Contact{I <: Integer, F <: AbstractFloat}
     j::I
     midᵢ::I
     midⱼ::I
-    𝐤::SVector{3, F}
     𝐅ᵢ::SVector{3, F}
     𝛕ᵢ::SVector{3, F}
     𝛕ⱼ::SVector{3, F}

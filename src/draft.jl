@@ -29,6 +29,7 @@ function main(cfg_filename)
         pw_coefficient_rolling_resistance,
         wall_normal,
         wall_distance,
+        tolerance,
     ) = cfg
 
     lines = split(read(init_particles, String), "\n")
@@ -73,8 +74,8 @@ function main(cfg_filename)
     kcenter = CUDA.zeros(Vec3, n) # Position center
     neighbor_cells = CUDA.zeros(Vec8i, n) # Position neighbor cells
 
-    F = CUDA.zeros(Vec3, n) # Force
-    τ = CUDA.zeros(Vec3, n) # Moment
+    forces = CUDA.zeros(Float64, n * 3)
+    moments = CUDA.zeros(Float64, n * 3)
 
     total_steps = trunc(Int, target_time / dt)
     save_per_steps = trunc(Int, saving_interval_time / dt)
@@ -133,12 +134,12 @@ function main(cfg_filename)
     # FIXME: walls are hard-coded
     walls = cu([WallDefault(wall_normal, wall_distance, 2)])
 
-    threads = 512
+    threads = 256
     blocks = ceil(Int, n / threads)
 
     function clear_state()
-        fill!(F, zero(Vec3))
-        fill!(τ, zero(Vec3))
+        fill!(forces, 0)
+        fill!(moments, 0)
     end
 
     cell(pos, domain_min, cell_size) = @. ceil(Int32, (pos - domain_min) / cell_size)
@@ -215,28 +216,19 @@ function main(cfg_filename)
         end
     end
 
-    # function append_contact_offset!(cfn, i)
-    #     offset = CUDA.atomic_add!(pointer(cfn, i), Int32(1))
-    #     if offset <= max_coordinate_number
-    #         return (i - 1) * max_coordinate_number + offset
-    #     end
-    #     return 0
-    # end
-
-    # function search_active_contact_offset(i, j, cf, cfa, cfn, max_coordinate_number)
-    #     for k in (i - 1) * max_coordinate_number .+ (1:cfn[i])
-    #         if cf[k].j == j && cfa[k]
-    #             return k
-    #         end
-    #     end
-    #     return 0
-    # end
+    function atomic_add_vec3!(container, start, value)
+        CUDA.atomic_add!(pointer(container, start), value[1])
+        CUDA.atomic_add!(pointer(container, start + 1), value[2])
+        CUDA.atomic_add!(pointer(container, start + 2), value[3])
+    end
 
     function resolve_collision!(
         contacts,
         contact_active,
         contact_bonded,
         contact_count,
+        forces,
+        moments,
         cp_list,
         cp_range,
         cp_range_current,
@@ -244,6 +236,7 @@ function main(cfg_filename)
         materials,
         surfaces,
         max_coordinate_number,
+        dt,
     )
         index = (blockIdx().x - 1) * blockDim().x + threadIdx().x
         stride = gridDim().x * blockDim().x
@@ -279,11 +272,124 @@ function main(cfg_filename)
                     end
 
                     if offset > 0
-                        z = SVector{3,Float64}(0.0, 0.0, 0.0)
-                        contacts[offset] = ContactDefault(i, j, 1, 1, z, z, z, z, z)
+                        z = zeros(Vec3)
+                        contacts[offset] = ContactDefault(i, j, 1, 1, z, z, z, z)
                         contact_active[offset] = true
                         contact_bonded[offset] = false
                         ev = true
+                    end
+                end
+
+                if ev
+                    a = normalize(grains[j].𝐤 - grains[i].𝐤)
+                    b = @SVector [1.0, 0.0, 0.0] # Local x coordinate
+                    v = a × b
+                    s = norm(v)
+                    c = a ⋅ b
+
+                    if s < tolerance
+                        sign = c > 0.0 ? 1.0 : -1.0
+                        𝐑 = @SMatrix [
+                            sign 0.0 0.0
+                            0.0 1.0 0.0
+                            0.0 0.0 sign
+                        ]
+                    else
+                        vx = @SMatrix [
+                            0.0 -v[3] v[2]
+                            v[3] 0.0 -v[1]
+                            -v[2] v[1] 0.0
+                        ]
+                        𝐑 =
+                            @SMatrix([
+                                1.0 0.0 0.0
+                                0.0 1.0 0.0
+                                0.0 0.0 1.0
+                            ]) +
+                            vx +
+                            vx^2 * (1.0 - c) / s^2
+                    end
+
+                    Lᵢ = norm(grains[j].𝐤 - grains[i].𝐤)
+
+                    # Contact evaluation (with contact model)
+                    if contact_bonded[offset]
+                        # 𝐤 = (grains[i].𝐤 + grains[j].𝐤) / 2.0
+                        𝐝ᵢ = 𝐑 * grains[i].𝐯 * dt
+                        𝐝ⱼ = 𝐑 * grains[j].𝐯 * dt
+                        𝛉ᵢ = 𝐑 * grains[i].𝛚 * dt
+                        𝛉ⱼ = 𝐑 * grains[j].𝛚 * dt
+                        midᵢ = grains[i].mid
+                        midⱼ = grains[j].mid
+                        rⱼ = surfaces[midᵢ, midⱼ].ρ * min(grains[i].r, grains[j].r)
+                        Lⱼ = Lᵢ
+                        Eⱼ = surfaces[midᵢ, midⱼ].E
+                        ν = surfaces[midᵢ, midⱼ].ν
+                        Iⱼ = rⱼ^4 * π / 4
+                        ϕ = 20.0 / 3.0 * rⱼ^2 / Lⱼ^2 * (1.0 + ν)
+                        Aⱼ = rⱼ^2 * π
+                        k₁ = Eⱼ * Aⱼ / Lⱼ
+                        k₂ = 12.0 * Eⱼ * Iⱼ / Lⱼ^3 / (1.0 + ϕ)
+                        k₃ = 6.0 * Eⱼ * Iⱼ / Lⱼ^2 / (1.0 + ϕ)
+                        k₄ = Eⱼ * Iⱼ / Lⱼ / (1.0 + ν)
+                        k₅ = Eⱼ * Iⱼ * (4.0 + ϕ) / Lⱼ / (1.0 + ϕ)
+                        k₆ = Eⱼ * Iⱼ * (2.0 - ϕ) / Lⱼ / (1.0 + ϕ)
+
+                        Δ𝐅ᵢ = Vec3(
+                            k₁ * (𝐝ᵢ[1] - 𝐝ⱼ[1]),
+                            k₂ * (𝐝ᵢ[2] - 𝐝ⱼ[2]) + k₃ * (𝐝ᵢ[3] + 𝐝ⱼ[3]),
+                            k₂ * (𝐝ᵢ[3] - 𝐝ⱼ[3]) - k₃ * (𝐝ᵢ[2] + 𝐝ⱼ[2]),
+                        )
+
+                        Δ𝛕ᵢ = Vec3(
+                            k₄ * (𝛉ᵢ[1] - 𝛉ⱼ[1]),
+                            k₃ * (𝐝ⱼ[3] - 𝐝ᵢ[3]) + k₅ * 𝛉ᵢ[2] + k₆ * 𝛉ⱼ[2],
+                            k₃ * (𝐝ᵢ[2] - 𝐝ⱼ[2]) + k₅ * 𝛉ᵢ[3] + k₆ * 𝛉ⱼ[3],
+                        )
+                        Δ𝛕ⱼ = Vec3(
+                            k₄ * (𝛉ⱼ[1] - 𝛉ᵢ[1]),
+                            k₃ * (𝐝ⱼ[3] - 𝐝ᵢ[3]) + k₆ * 𝛉ᵢ[2] + k₅ * 𝛉ⱼ[2],
+                            k₃ * (𝐝ᵢ[2] - 𝐝ⱼ[2]) + k₆ * 𝛉ᵢ[3] + k₅ * 𝛉ⱼ[3],
+                        )
+
+                        𝐅ᵢ = contacts[offset].𝐅ᵢ + Δ𝐅ᵢ
+                        𝐅ⱼ = -𝐅ᵢ
+                        𝛕ᵢ = contacts[offset].𝛕ᵢ + Δ𝛕ᵢ
+                        𝛕ⱼ = contacts[offset].𝛕ⱼ + Δ𝛕ⱼ
+
+                        # TODO: should it be 𝐅ᵢ[1]?
+                        σ𝑐ᵢ = 𝐅ⱼ[1] / Aⱼ - rⱼ / Iⱼ * √(𝛕ᵢ[2]^2 + 𝛕ᵢ[3]^2)
+                        σ𝑐ⱼ = 𝐅ⱼ[1] / Aⱼ - rⱼ / Iⱼ * √(𝛕ⱼ[2]^2 + 𝛕ⱼ[3]^2)
+                        σ𝑐 = -min(σ𝑐ᵢ, σ𝑐ⱼ)
+
+                        σ𝑡ᵢ = σ𝑐ᵢ
+                        σ𝑡ⱼ = σ𝑐ⱼ
+                        σ𝑡 = max(σ𝑡ᵢ, σ𝑡ⱼ)
+
+                        σ𝑠 = abs(𝛕ᵢ[1]) * rⱼ / 2.0 / Iⱼ + 4.0 / 3.0 / Aⱼ * √(𝐅ᵢ[2]^2 + 𝐅ᵢ[3]^2)
+                        if σ𝑐 >= surfaces[midᵢ, midⱼ].σ𝑐 || σ𝑡 >= surfaces[midᵢ, midⱼ].σ𝑡 || σ𝑠 >= surfaces[midᵢ, midⱼ].σ𝑠
+                            contact_active[offset] = false
+                            contact_bonded[offset] = false
+                        else
+                            𝐑⁻¹ = inv(𝐑)
+                            atomic_add_vec3!(forces, 3 * i - 2, 𝐑⁻¹ * -𝐅ᵢ)
+                            atomic_add_vec3!(forces, 3 * j - 2, 𝐑⁻¹ * -𝐅ⱼ)
+                            atomic_add_vec3!(moments, 3 * i - 2,  𝐑⁻¹ * -𝛕ᵢ)
+                            atomic_add_vec3!(moments, 3 * j - 2,  𝐑⁻¹ * -𝛕ⱼ)
+                        end
+
+                        contacts[offset] = ContactDefault(
+                            contacts[offset].i,
+                            contacts[offset].j,
+                            contacts[offset].midᵢ,
+                            contacts[offset].midⱼ,
+                            𝐅ᵢ,
+                            𝛕ᵢ,
+                            𝛕ⱼ,
+                            zero(Vec3),
+                        )
+                    else # Non-bonded, use Hertz-Mindlin
+
                     end
                 end
             end
@@ -343,6 +449,8 @@ function main(cfg_filename)
             contact_active,
             contact_bonded,
             contact_count,
+            forces,
+            moments,
             cp_list,
             cp_range,
             cp_range_current,
@@ -350,6 +458,7 @@ function main(cfg_filename)
             materials,
             surfaces,
             max_coordinate_number,
+            dt,
         )
     end
 

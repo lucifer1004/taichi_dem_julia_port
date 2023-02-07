@@ -8,7 +8,7 @@ using CUDA
 using EnumX
 using FLoops
 using FoldsCUDA
-using LinearAlgebra: inv, norm, ⋅
+using LinearAlgebra: inv, norm, normalize, ⋅, ×
 using MLStyle
 using Morton
 using Quaternionic: Quaternion
