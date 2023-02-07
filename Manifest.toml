@@ -2,7 +2,7 @@
 
 julia_version = "1.9.0-beta3"
 manifest_format = "2.0"
-project_hash = "2047c0e46d298dd6673f56f208d4d401b4cbd436"
+project_hash = "cc016aa1864fb8cbb14736f98e691fe7c0acb1bd"
 
 [[deps.AbstractAlgebra]]
 deps = ["GroupsCore", "InteractiveUtils", "LinearAlgebra", "MacroTools", "Markdown", "Random", "RandomExtensions", "SparseArrays", "Test"]
@@ -20,6 +20,16 @@ version = "1.2.1"
 git-tree-sha1 = "faa260e4cb5aba097a73fab382dd4b5819d8ec8c"
 uuid = "1520ce14-60c1-5f80-bbc7-55ef81b5835c"
 version = "0.4.4"
+
+[[deps.Accessors]]
+deps = ["Compat", "CompositionsBase", "ConstructionBase", "Dates", "InverseFunctions", "LinearAlgebra", "MacroTools", "Requires", "Test"]
+git-tree-sha1 = "b9661b900b50ba475145b311a9a0ef9d2a9c85ea"
+uuid = "7d9f7c33-5ae7-4f3b-8dc6-eff91059b697"
+version = "0.1.26"
+weakdeps = ["StaticArrays"]
+
+    [deps.Accessors.extensions]
+    StaticArraysExt = "StaticArrays"
 
 [[deps.Adapt]]
 deps = ["LinearAlgebra"]

@@ -1,5 +1,6 @@
 module DEMPort
 
+using Accessors
 using Adapt
 using Atomix: @atomic
 using Configurations
@@ -7,10 +8,10 @@ using CUDA
 using EnumX
 using FLoops
 using FoldsCUDA
-using LinearAlgebra: norm, ⋅
+using LinearAlgebra: inv, norm, ⋅
 using MLStyle
 using Morton
-using Quaternionic
+using Quaternionic: Quaternion
 using Referenceables
 using StaticArrays
 
