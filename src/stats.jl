@@ -7,12 +7,14 @@ end
 
 @as_record Timer
 
-tick(t::Timer) =
+function tick(t::Timer)
     @match t begin
         Timer(first, false, _, total) => Timer(first, true, time(), total)
-        Timer(false, true, start, total) => Timer(false, false, start, total + time() - start)
+        Timer(false, true, start, total) => Timer(false, false, start,
+                                                  total + time() - start)
         Timer(true, true, _, _) => Timer(false, false, time(), 0.0)
     end
+end
 
 mutable struct Statistics
     solve::Timer
@@ -27,4 +29,7 @@ mutable struct Statistics
     update::Timer
 end
 
-Statistics() = Statistics(Timer(), Timer(), Timer(), Timer(), Timer(), Timer(), Timer(), Timer(), Timer(), Timer())
+function Statistics()
+    Statistics(Timer(), Timer(), Timer(), Timer(), Timer(), Timer(), Timer(), Timer(),
+               Timer(), Timer())
+end

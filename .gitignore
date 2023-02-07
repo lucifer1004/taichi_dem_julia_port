@@ -2,3 +2,5 @@ taichi_dem_cpp_equivalent/.vs/
 taichi_dem_cpp_equivalent/x64/
 output*
 .vscode
+/*.jl
+*.log

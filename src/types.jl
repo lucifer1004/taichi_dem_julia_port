@@ -30,6 +30,7 @@ const SurfaceDefault = Surface{Float64}
 
 struct Grain{I <: Integer, F <: AbstractFloat}
     id::I
+    gid::I
     mid::I
     V::F
     m::F
