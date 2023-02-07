@@ -43,18 +43,3 @@ export DEMConfig, DEMConfigDefault
 end
 
 DEMConfigDefault = DEMConfig{Int, Float64}
-
-GLOBAL_CONFIG = Ref{Union{DEMConfig, Nothing}}(nothing)
-GLOBAL_EX = Ref{Any}(ThreadedEx())
-
-function load_config(file)
-    GLOBAL_CONFIG[] = from_toml(DEMConfigDefault, file)
-end
-
-function use_cpu()
-    GLOBAL_EX[] = ThreadedEx()
-end
-
-function use_gpu()
-    GLOBAL_EX[] = CUDAEx()
-end

@@ -6,6 +6,7 @@ using Atomix: @atomic
 using Configurations
 using CUDA
 using EnumX
+using GLMakie
 using LinearAlgebra: inv, norm, normalize, ⋅, ×
 using MLStyle
 using Morton

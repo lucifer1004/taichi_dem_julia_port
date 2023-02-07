@@ -178,7 +178,7 @@ set_particle_elastic_modulus: Real = 7e10;
 set_particle_poisson_ratio: Real = 0.25;
 
 set_wall_normal: Vector3 = Vector3(0.0, 0.0, -1.0);
-set_wall_distance: Real = 25.0;
+set_wall_distance: Real = 0.5;
 set_wall_density: Real = 7800.0;
 set_wall_elastic_modulus: Real = 2e11;
 set_wall_poisson_ratio: Real = 0.25;
@@ -1881,7 +1881,7 @@ if __name__ == '__main__':
         gui = ti.GUI('Taichi DEM', (window_size, window_size))
         while gui.running and step < config.nsteps:
             for _ in range(100):
-                step+=1 
+                step+=1
                 solver.run_simulation()
             pos = solver.gf.position.to_numpy()
             r = solver.gf.radius.to_numpy() * window_size

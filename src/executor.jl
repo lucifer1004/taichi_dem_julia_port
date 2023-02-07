@@ -1,4 +1,6 @@
 function main(cfg_filename)
+    start_time = time_ns()
+
     cfg = from_toml(DEMConfig{Int32,Float64}, cfg_filename)
     (;
         domain_min,
@@ -7,6 +9,7 @@ function main(cfg_filename)
         max_coordinate_number,
         particle_contact_radius_multiplier,
         collision_pair_init_capacity_factor,
+        neighboring_search_safety_factor,
         dt,
         target_time,
         saving_interval_time,
@@ -38,11 +41,11 @@ function main(cfg_filename)
 
     n = parse(Int, split(lines[2])[2]) # $timestamp $particles
     grains_cpu = map(lines[4:(n+3)]) do line
-        id, gid, V, m, k_x, k_y, k_z, v_x, v_y, v_z = parse.(Float64, split(line))
-        k = @SVector [k_x, k_y, k_z]
-        v = @SVector [v_x, v_y, v_z]
+        id, gid, V, m, k₁, k₂, k₃, v₁, v₂, v₃ = parse.(Float64, split(line))
+
+        # TODO: implement other shapes
         r = ∛(V / (4 / 3 * π))
-        I = @SMatrix [
+        𝐈 = @SMatrix [
             2/5*m*r^2 0 0
             0 2/5*m*r^2 0
             0 0 2/5*m*r^2
@@ -57,17 +60,22 @@ function main(cfg_filename)
             m,
             r,
             r * particle_contact_radius_multiplier,
-            k,
-            v,
+            Vec3(k₁, k₂, k₃),
+            Vec3(v₁, v₂, v₃),
             zero(Vec3),
             one(Quaternion{Float64}),
             zero(Vec3),
             zero(Vec3),
-            I,
+            𝐈,
         )
     end
     material_density = grains_cpu[1].m / grains_cpu[1].V
-    rₘₐₓ = maximum(g -> g.r, grains_cpu)
+    # Calculate neighbor search radius
+    rₘₐₓ =
+        maximum(g -> g.r, grains_cpu) *
+        particle_contact_radius_multiplier *
+        (1.0 + bond_tensile_strength / bond_elastic_modulus) *
+        neighboring_search_safety_factor
     grains = cu(grains_cpu)
 
     # Translational attributes, all in GLOBAL coordinates
@@ -141,12 +149,14 @@ function main(cfg_filename)
     threads = 256
     blocks = ceil(Int, n / threads)
 
+    @info "Setting:" hash_table_size cell_size
+
     function clear_state()
         fill!(forces, 0)
         fill!(moments, 0)
     end
 
-    function contact()
+    function contact(; init = false)
         map!(g -> cell(g.𝐤, domain_min, cell_size), kid, grains)
         map!(ijk -> hashcode(ijk, hash_table_size), hid, kid)
         map!(ijk -> center(ijk, domain_min, cell_size), kcenter, kid)
@@ -164,7 +174,13 @@ function main(cfg_filename)
 
         # Detect collision
         fill!(cp_range, 0)
-        map!((g, ijk, c) -> neighbors(g.𝐤, ijk, c, hash_table_size), neighbor_cells, grains, kid, kcenter)
+        map!(
+            (g, ijk, c) -> neighbors(g.𝐤, ijk, c, hash_table_size),
+            neighbor_cells,
+            grains,
+            kid,
+            kcenter,
+        )
         @cuda threads = threads blocks = blocks search_hash_table!(
             cp_range,
             hash_table,
@@ -182,6 +198,7 @@ function main(cfg_filename)
         end
         if cap > length(cp_list)
             resize!(cp_list, cap)
+            @info "Resize CP List: $(length(cp_list))"
         end
 
         @cuda threads = threads blocks = blocks update_cp_list!(
@@ -194,23 +211,37 @@ function main(cfg_filename)
         )
 
         # Resolve collision
-        @cuda threads = threads blocks = blocks resolve_collision!(
-            contacts,
-            contact_active,
-            contact_bonded,
-            contact_count,
-            forces,
-            moments,
-            cp_list,
-            cp_range,
-            cp_range_current,
-            grains,
-            materials,
-            surfaces,
-            max_coordinate_number,
-            dt,
-            tolerance,
-        )
+        if init
+            @cuda threads = threads blocks = blocks init_bonds!(
+                contacts,
+                contact_active,
+                contact_bonded,
+                contact_count,
+                cp_list,
+                cp_range,
+                cp_range_current,
+                grains,
+                max_coordinate_number,
+            )
+        else
+            @cuda threads = threads blocks = blocks resolve_collision!(
+                contacts,
+                contact_active,
+                contact_bonded,
+                contact_count,
+                forces,
+                moments,
+                cp_list,
+                cp_range,
+                cp_range_current,
+                grains,
+                materials,
+                surfaces,
+                max_coordinate_number,
+                dt,
+                tolerance,
+            )
+        end
     end
 
     function resolve_wall()
@@ -246,37 +277,25 @@ function main(cfg_filename)
         @cuda threads = threads blocks = blocks remove_inactive_contact!(
             contacts,
             contact_active,
+            contact_bonded,
             contact_count,
             grains,
             max_coordinate_number,
         )
     end
 
-    function simulate()
+    function simulate(; init = false)
         clear_state()
-        contact()
+        contact(init = init)
         resolve_wall()
-
-        # g = Array(grains)
-        # omega = map(gi -> gi.𝛚, g)
-
-        # if any(map(x -> any(isnan.(x)), omega))
-        #     idx = findfirst(x -> any(isnan.(x)), omega)
-        #     @warn "omega nan" idx, omega[idx:idx+100]
-        # end
-
-        # F = Array(forces)
-        # if any(isnan.(F))
-        #     idx = findfirst(isnan, F)
-        #     @warn "F nan" idx, F[idx:idx+100]
-        # end
-
         apply_body_force()
         update()
         late_clear_state()
     end
 
     step = 0
+    simulate(init = true)
+
     p4p = open("output.p4p", "w")
     p4c = open("output.p4c", "w")
     save_single(grains, contacts, contact_active, contact_bonded, p4p, p4c, 0.0)
@@ -291,9 +310,13 @@ function main(cfg_filename)
 
         Δt = (t₂ - t₁) * 1e-9
         @info "Solving..." step Δt
+        
+        snapshot(grains, step)
         save_single(grains, contacts, contact_active, contact_bonded, p4p, p4c, step * dt)
     end
 
     close(p4p)
     close(p4c)
+
+    @info "Total time: $((time_ns() - start_time) * 1e-9) s"
 end

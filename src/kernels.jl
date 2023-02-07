@@ -16,9 +16,8 @@ function get_particle_id!(pid, hash_table_current, hid)
     index = (blockIdx().x - 1) * blockDim().x + threadIdx().x
     stride = gridDim().x * blockDim().x
     for i = index:stride:length(hid)
-        idx = hid[i]
-        pid[hash_table_current[idx]] = i
-        CUDA.atomic_add!(pointer(hash_table_current, idx), Int32(-1))
+        id = CUDA.atomic_add!(pointer(hash_table_current, hid[i]), Int32(-1))
+        pid[id] = i
     end
 end
 
@@ -52,9 +51,53 @@ function update_cp_list!(
             for k = (hash_table_current[idx]+1):(hash_table_current[idx]+hash_table[idx])
                 j = pid[k]
                 if i < j
-                    current = cp_range_current[i]
+                    current = CUDA.atomic_add!(pointer(cp_range_current, i), Int32(-1))
                     cp_list[current] = j
-                    CUDA.atomic_add!(pointer(cp_range_current, i), Int32(-1))
+                end
+            end
+        end
+    end
+end
+
+function init_bonds!(
+    contacts,
+    contact_active,
+    contact_bonded,
+    contact_count,
+    cp_list,
+    cp_range,
+    cp_range_current,
+    grains,
+    max_coordinate_number,
+)
+    index = (blockIdx().x - 1) * blockDim().x + threadIdx().x
+    stride = gridDim().x * blockDim().x
+    for i = index:stride:length(grains)
+        for idx = (cp_range_current[i]+1):(cp_range_current[i]+cp_range[i])
+            j = cp_list[idx]
+            if norm(grains[i].𝐤 - grains[j].𝐤) < grains[i].r₀ + grains[j].r₀
+                offset = contact_count[i] += 1
+                if offset <= max_coordinate_number
+                    offset += (i - 1) * max_coordinate_number
+                else
+                    offset = 0
+                end
+
+                if offset > 0
+                    # FIXME: material type is hard-coded
+                    contacts[offset] = ContactDefault(
+                        i,
+                        j,
+                        1,
+                        1,
+                        zero(Vec3),
+                        zero(Vec3),
+                        zero(Vec3),
+                        zero(Vec3),
+                        zero(Vec3),
+                    )
+                    contact_active[offset] = true
+                    contact_bonded[offset] = true
                 end
             end
         end
@@ -81,11 +124,13 @@ function resolve_collision!(
     index = (blockIdx().x - 1) * blockDim().x + threadIdx().x
     stride = gridDim().x * blockDim().x
     for i = index:stride:length(grains)
-        for k = (cp_range_current[i]+1):(cp_range_current[i]+cp_range[i])
-            j = cp_list[k]
+        for idx = (cp_range_current[i]+1):(cp_range_current[i]+cp_range[i])
+            j = cp_list[idx]
 
             ev = false
             offset = 0
+
+            # TODO: Find a better way to do this
             for k in (i - 1) * max_coordinate_number .+ (1:contact_count[i])
                 if contacts[k].j == j && contact_active[k]
                     offset = k
@@ -94,17 +139,13 @@ function resolve_collision!(
             end
 
             if offset > 0
-                if contact_bonded[offset]
-                    ev = true
-                elseif norm(grains[i].𝐤 - grains[j].𝐤) < grains[i].r + grains[j].r
-                    # Use PFC's gap < 0 criterion
+                if contact_bonded[offset] || norm(grains[i].𝐤 - grains[j].𝐤) < grains[i].r + grains[j].r
                     ev = true
                 else
                     contact_active[offset] = false
                 end
             elseif norm(grains[i].𝐤 - grains[j].𝐤) < grains[i].r + grains[j].r
-                # Note that atomic_add! returns the old value
-                offset = CUDA.atomic_add!(pointer(contact_count, i), Int32(1)) + 1
+                offset = contact_count[i] += 1
                 if offset <= max_coordinate_number
                     offset += (i - 1) * max_coordinate_number
                 else
@@ -112,6 +153,7 @@ function resolve_collision!(
                 end
 
                 if offset > 0
+                    # FIXME: material type is hard-coded
                     contacts[offset] = ContactDefault(
                         i,
                         j,
@@ -186,8 +228,8 @@ function resolve_collision!(
 
                     Δ𝐅ᵢ = Vec3(
                         k₁ * (𝐝ᵢ[1] - 𝐝ⱼ[1]),
-                        k₂ * (𝐝ᵢ[2] - 𝐝ⱼ[2]) + k₃ * (𝐝ᵢ[3] + 𝐝ⱼ[3]),
-                        k₂ * (𝐝ᵢ[3] - 𝐝ⱼ[3]) - k₃ * (𝐝ᵢ[2] + 𝐝ⱼ[2]),
+                        k₂ * (𝐝ᵢ[2] - 𝐝ⱼ[2]) + k₃ * (𝛉ᵢ[3] + 𝛉ⱼ[3]),
+                        k₂ * (𝐝ᵢ[3] - 𝐝ⱼ[3]) - k₃ * (𝛉ᵢ[2] + 𝛉ⱼ[2]),
                     )
 
                     Δ𝛕ᵢ = Vec3(
@@ -205,10 +247,6 @@ function resolve_collision!(
                     𝐅ⱼ = -𝐅ᵢ
                     𝛕ᵢ = contacts[offset].𝛕ᵢ + Δ𝛕ᵢ
                     𝛕ⱼ = contacts[offset].𝛕ⱼ + Δ𝛕ⱼ
-
-                    if any(isnan.(𝐅ᵢ))
-                        @cuprintln("Fatal: ", i, " ", 𝐅ᵢ[1], " ", 𝐅ᵢ[2], " ", 𝐅ᵢ[3])
-                    end
 
                     # TODO: should it be 𝐅ᵢ[1]?
                     σ𝑐ᵢ = 𝐅ⱼ[1] / Aⱼ - rⱼ / Iⱼ * √(𝛕ᵢ[2]^2 + 𝛕ᵢ[3]^2)
@@ -283,7 +321,7 @@ function resolve_collision!(
                     γₜ = -2.0 * β * √(5.0 / 6.0 * Sₜ * m✶)
 
                     # Shear displacement increments (remove the normal direction)
-                    Δ𝐬 = 𝐯𝑐 * dt .* Vec3(0.0, 1.0, 1.0)
+                    Δ𝐬 = 𝐯𝑐 .* Vec3(0.0, dt, dt)
                     𝐬 = contacts[offset].𝐬 + Δ𝐬
                     F₁ = -kₙ * gap - γₙ * 𝐯𝑐[1]
                     𝐅𝑡 = -kₜ * 𝐬
@@ -369,7 +407,7 @@ function resolve_wall!(
                 end
 
                 L = grains[i].𝐤 ⋅ walls[j].𝐧 - walls[j].d
-                gap = L - grains[i].r
+                gap = abs(L) - grains[i].r
                 Δn = abs(gap)
 
                 𝐤ᵢ = -L * walls[j].𝐧 / abs(L) * (abs(L) + Δn / 2.0)
@@ -404,7 +442,7 @@ function resolve_wall!(
                 γₜ = -2.0 * β * √(5.0 / 6.0 * Sₜ * m✶)
 
                 # Shear displacement increments (remove the normal direction)
-                Δ𝐬 = 𝐯𝑐 * dt .* Vec3(0.0, 1.0, 1.0)
+                Δ𝐬 = 𝐯𝑐 .* Vec3(0.0, dt, dt)
                 𝐬 = wall_contacts[j, i].𝐬 + Δ𝐬
                 F₁ = -kₙ * gap - γₙ * 𝐯𝑐[1]
                 𝐅𝑡 = -kₜ * 𝐬
@@ -504,6 +542,7 @@ end
 function remove_inactive_contact!(
     contacts,
     contact_active,
+    contact_bonded,
     contact_count,
     grains,
     max_coordinate_number,
@@ -512,11 +551,21 @@ function remove_inactive_contact!(
     stride = gridDim().x * blockDim().x
     for i = index:stride:length(grains)
         active_count = 0
+        base = (i-1)*max_coordinate_number
+        for j = 1:contact_count[i]
+            if contact_active[base+j]
+                active_count += 1
+            end
+        end
+
         offset = 1
         for j = 1:contact_count[i]
-            if contact_active[(i-1)*max_coordinate_number+j]
-                contacts[(i-1)*max_coordinate_number+offset] =
-                    contacts[(i-1)*max_coordinate_number+j]
+            if contact_active[base+j]
+                contact_active[base+offset] = true
+                contact_bonded[base+offset] =
+                    contact_bonded[base+j]
+                contacts[base+offset] =
+                    contacts[base+j]
                 offset += 1
                 if offset > active_count
                     break

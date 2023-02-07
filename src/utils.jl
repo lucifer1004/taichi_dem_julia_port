@@ -27,7 +27,7 @@ function save_single(grains, contacts, contact_active, contact_bonded, p4p, p4c,
     for i = 1:n
         println(
             p4p,
-            "$(g[i].id) $(g[i].mid) $(g[i].V) $(g[i].m) $(g[i].𝐤[1]) $(g[i].𝐤[2]) $(g[i].𝐤[3]) $(g[i].𝐯[1]) $(g[i].𝐯[2]) $(g[i].𝐯[3])",
+            "$(g[i].id) $(g[i].gid) $(g[i].V) $(g[i].m) $(g[i].𝐤[1]) $(g[i].𝐤[2]) $(g[i].𝐤[3]) $(g[i].𝐯[1]) $(g[i].𝐯[2]) $(g[i].𝐯[3])",
         )
     end
 
@@ -57,4 +57,29 @@ function save_single(grains, contacts, contact_active, contact_bonded, p4p, p4c,
     t₂ = time_ns()
     Δt = (t₂ - t₁) * 1e-9
     @info "Checkpoint saved!" Δt
+end
+
+function snapshot(grains, step)
+    grains = Array(grains)
+    𝐤 = [g.𝐤 for g in grains]
+    x = [k[1] for k in 𝐤]
+    y = [k[2] for k in 𝐤]
+    z = [k[3] for k in 𝐤]
+    r = [g.r for g in grains]
+    fig, _ = meshscatter(
+        x,
+        y,
+        z;
+        markersize = r,
+        color = z,
+        axis = (;
+            type = Axis3,
+            aspect = :data,
+            azimuth = 7.3,
+            elevation = 0.189,
+            perspectiveness = 0.5,
+        ),
+        figure = (; resolution = (1200, 800)),
+    )
+    save("snapshot_$step.png", fig)
 end

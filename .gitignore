@@ -4,3 +4,4 @@ output*
 .vscode
 /*.jl
 *.log
+snapshot*
