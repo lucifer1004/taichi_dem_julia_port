@@ -1065,7 +1065,6 @@ class DEMSolver:
         np_radius = np.zeros(n, float)
         np_position = np.zeros((n,3))
         np_velocity = np.zeros((n,3))
-        np_mass = np.zeros(n, float)
         np_inertia = np.zeros((n,3,3))
 
         # Extract density, hard coding

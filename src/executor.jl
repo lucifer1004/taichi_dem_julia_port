@@ -91,7 +91,7 @@ function solve(cfg_filename; save_snapshot = false, save_information = true)
     hash_table_current = similar(hash_table)
 
     pid = CUDA.zeros(Int32, n)
-    cp_list = CUDA.zeros(Int32, n * collision_pair_init_capacity_factor)
+    cp_list = CUDA.zeros(Vec2i, n * collision_pair_init_capacity_factor)
     cp_range = CUDA.zeros(Int32, n)
     cp_range_current = similar(cp_range)
 
@@ -151,12 +151,11 @@ function solve(cfg_filename; save_snapshot = false, save_information = true)
     neighbors_m(g, ijk, c) = neighbors(g.𝐤, ijk, c, hash_table_size)
 
     function contact(; init = false)
+        # Precalculate cell ijk, hash code, center and neighbors
         map!(cell_m, kid, grains)
-
-        @sync begin
-            Threads.@spawn map!(hashcode_m, hid, kid)
-            Threads.@spawn map!(center_m, kcenter, kid)
-        end
+        map!(hashcode_m, hid, kid)
+        map!(center_m, kcenter, kid)
+        map!(neighbors_m, neighbor_cells, grains, kid, kcenter)
 
         # Setup hash table
         fill!(hash_table, 0)
@@ -168,7 +167,6 @@ function solve(cfg_filename; save_snapshot = false, save_information = true)
 
         # Detect collision
         fill!(cp_range, 0)
-        map!(neighbors_m, neighbor_cells, grains, kid, kcenter)
         @cuda threads=threads blocks=blocks search_hash_table!(cp_range,
                                                                hash_table,
                                                                hash_table_current,
@@ -194,31 +192,29 @@ function solve(cfg_filename; save_snapshot = false, save_information = true)
 
         # Resolve collision
         if init
-            @cuda threads=threads blocks=blocks init_bonds!(contacts,
-                                                            contact_active,
-                                                            contact_bonded,
-                                                            contact_count,
-                                                            cp_list,
-                                                            cp_range,
-                                                            cp_range_current,
-                                                            grains,
-                                                            max_coordinate_number)
+            @cuda threads=threads blocks=cld(total, threads) init_bonds!(contacts,
+                                                                         contact_active,
+                                                                         contact_bonded,
+                                                                         contact_count,
+                                                                         cp_list,
+                                                                         total,
+                                                                         grains,
+                                                                         max_coordinate_number)
         else
-            @cuda threads=threads blocks=blocks resolve_collision!(contacts,
-                                                                   contact_active,
-                                                                   contact_bonded,
-                                                                   contact_count,
-                                                                   forces,
-                                                                   moments,
-                                                                   cp_list,
-                                                                   cp_range,
-                                                                   cp_range_current,
-                                                                   grains,
-                                                                   materials,
-                                                                   surfaces,
-                                                                   max_coordinate_number,
-                                                                   dt,
-                                                                   tolerance)
+            @cuda threads=threads blocks=cld(total, threads) resolve_collision!(contacts,
+                                                                                contact_active,
+                                                                                contact_bonded,
+                                                                                contact_count,
+                                                                                forces,
+                                                                                moments,
+                                                                                cp_list,
+                                                                                total,
+                                                                                grains,
+                                                                                materials,
+                                                                                surfaces,
+                                                                                max_coordinate_number,
+                                                                                dt,
+                                                                                tolerance)
         end
     end
 
@@ -274,8 +270,9 @@ function solve(cfg_filename; save_snapshot = false, save_information = true)
         save_single(grains, contacts, contact_active, contact_bonded, p4p, p4c, 0.0)
     end
 
-    total_steps = 100
-    save_per_steps = 100
+    # # Debug use
+    # total_steps = 100
+    # save_per_steps = 100
     while step < total_steps
         t₁ = time_ns()
         for _ in 1:save_per_steps

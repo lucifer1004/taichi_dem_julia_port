@@ -1,5 +1,5 @@
 run:
-	~/.local/bin/julia --project=. -t `nproc` script.jl
+	~/.local/bin/julia --project=. script.jl
 
 prepare-hpc:
 	module load pyenv && \
