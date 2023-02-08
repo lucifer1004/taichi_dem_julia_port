@@ -1,4 +1,165 @@
+mutable struct GlobalData
+    grains::CuArray{GrainDefault, 1, CUDA.Mem.DeviceBuffer}
+    kid::CuArray{Vec3i, 1, CUDA.Mem.DeviceBuffer}
+    hid::CuArray{UInt32, 1, CUDA.Mem.DeviceBuffer}
+    kcenter::CuArray{Vec3, 1, CUDA.Mem.DeviceBuffer}
+    neighbor_cells::CuArray{Vec8i, 1, CUDA.Mem.DeviceBuffer}
+
+    materials::CuArray{MaterialDefault, 1, CUDA.Mem.DeviceBuffer}
+    surfaces::CuArray{SurfaceDefault, 2, CUDA.Mem.DeviceBuffer}
+    walls::CuArray{WallDefault, 1, CUDA.Mem.DeviceBuffer}
+    wall_contacts::CuArray{ContactDefault, 2, CUDA.Mem.DeviceBuffer}
+
+    forces::CuArray{Float64, 1, CUDA.Mem.DeviceBuffer}
+    moments::CuArray{Float64, 1, CUDA.Mem.DeviceBuffer}
+
+    hash_table::CuArray{UInt32, 1, CUDA.Mem.DeviceBuffer}
+    hash_table_current::CuArray{UInt32, 1, CUDA.Mem.DeviceBuffer}
+    pid::CuArray{UInt32, 1, CUDA.Mem.DeviceBuffer}
+
+    cp_list::CuArray{Vec2i, 1, CUDA.Mem.DeviceBuffer}
+    cp_range::CuArray{UInt32, 1, CUDA.Mem.DeviceBuffer}
+    cp_range_current::CuArray{UInt32, 1, CUDA.Mem.DeviceBuffer}
+
+    contacts::CuArray{ContactDefault, 1, CUDA.Mem.DeviceBuffer}
+    contact_ptr::CuArray{UInt32, 1, CUDA.Mem.DeviceBuffer}
+    contacts_temp::CuArray{ContactDefault, 1, CUDA.Mem.DeviceBuffer}
+    contact_ptr_temp::CuArray{UInt32, 1, CUDA.Mem.DeviceBuffer}
+    contact_active::CuArray{UInt32, 1, CUDA.Mem.DeviceBuffer}
+    contact_bonded::CuArray{UInt32, 1, CUDA.Mem.DeviceBuffer}
+end
+
+function clear_state!(g::GlobalData)
+    fill!(g.forces, 0)
+    fill!(g.moments, 0)
+end
+
+function contact!(g::GlobalData, threads; domain_min, cell_size, hash_table_size, dt, tolerance, init = false)
+    # Precalculate cell ijk, hash code, center and neighbors
+    map!(g -> cell(g.𝐤, domain_min, cell_size), g.kid, g.grains)
+    map!(ijk -> hashcode(ijk, hash_table_size), g.hid, g.kid)
+    map!(ijk -> center(ijk, domain_min, cell_size), g.kcenter, g.kid)
+    map!((g, ijk, c) -> neighbors(g.𝐤, ijk, c, hash_table_size)
+    , g.neighbor_cells, g.grains, g.kid, g.kcenter)
+
+    # Setup hash table
+    fill!(g.hash_table, 0)
+    n = length(g.grains)
+    blocks = cld(n, threads)
+    @cuda threads=threads blocks=blocks count_particles!(g.hash_table, g.hid)
+    accumulate!(+, g.hash_table_current, g.hash_table)
+    @cuda threads=threads blocks=blocks get_particle_id!(g.pid,
+                                                         g.hash_table_current,
+                                                         g.hid)
+
+    # Detect collision
+    fill!(g.cp_range, 0)
+    @cuda threads=threads blocks=blocks search_hash_table!(g.cp_range,
+                                                           g.hash_table,
+                                                           g.hash_table_current,
+                                                           g.neighbor_cells,
+                                                           g.pid)
+    accumulate!(+, g.cp_range_current, g.cp_range)
+    total_cps = CUDA.@allowscalar g.cp_range_current[end]
+    cap = length(g.cp_list)
+    while cap < total_cps
+        cap <<= 1
+    end
+    if cap > length(g.cp_list)
+        resize!(g.cp_list, cap)
+        @info "Resize CP List: $(length(g.cp_list))"
+    end
+
+    @cuda threads=threads blocks=blocks update_cp_list!(g.cp_list,
+                                                        g.cp_range_current,
+                                                        g.hash_table,
+                                                        g.hash_table_current,
+                                                        g.neighbor_cells,
+                                                        g.pid)
+
+    if init
+        @cuda threads=threads blocks=cld(total_cps, threads) init_bonds!(g.contacts,
+                                                                         g.contact_ptr,
+                                                                         g.contact_active,
+                                                                         g.contact_bonded,
+                                                                         g.cp_list,
+                                                                         total_cps,
+                                                                         g.grains)
+    else
+        @cuda threads=threads blocks=cld(total_cps, threads) update_contacts!(g.contacts,
+                                                                              g.contact_ptr,
+                                                                              g.contact_active,
+                                                                              g.contact_bonded,
+                                                                              g.cp_list,
+                                                                              total_cps,
+                                                                              g.grains)
+
+        # Resolve collision
+        total_contacts = CUDA.@allowscalar g.contact_ptr[1]
+        @cuda threads=threads blocks=cld(total_contacts, threads) resolve_collision!(g.contacts,
+                                                                                     total_contacts,
+                                                                                     g.contact_active,
+                                                                                     g.contact_bonded,
+                                                                                     g.forces,
+                                                                                     g.moments,
+                                                                                     g.grains,
+                                                                                     g.materials,
+                                                                                     g.surfaces,
+                                                                                     dt,
+                                                                                     tolerance)
+    end
+end
+
+function resolve_wall!(g::GlobalData, threads; dt, tolerance)
+    @cuda threads=threads blocks=cld(length(g.grains), threads) resolve_wall!(g.wall_contacts,
+                                                                              g.forces,
+                                                                              g.moments,
+                                                                              g.grains,
+                                                                              g.walls,
+                                                                              g.materials,
+                                                                              g.surfaces,
+                                                                              dt,
+                                                                              tolerance)
+end
+
+function apply_body_force!(g::GlobalData, threads; gravity, global_damping)
+    @cuda threads=threads blocks=cld(length(g.grains), threads) apply_body_force!(g.forces,
+                                                          g.moments,
+                                                          g.grains,
+                                                          gravity,
+                                                          global_damping)
+end
+
+function update!(g::GlobalData, threads; dt)
+    @cuda threads=threads blocks=cld(length(g.grains), threads) update!(g.grains, g.forces, g.moments, dt)
+end
+
+function late_clear_state!(g::GlobalData, threads)
+    total_contacts = CUDA.@allowscalar g.contact_ptr[1]
+    CUDA.@allowscalar g.contact_ptr_temp[1] = 0
+    CUDA.@sync @cuda threads=threads blocks=cld(total_contacts, threads) remove_inactive_contact!(g.contacts,
+                                                                                       g.contacts_temp,
+                                                                                       g.contact_ptr_temp,
+                                                                                       g.contact_active,
+                                                                                       total_contacts,
+                                                                                       g.grains)
+    g.contacts, g.contacts_temp = g.contacts_temp, g.contacts
+    g.contact_ptr, g.contact_ptr_temp = g.contact_ptr_temp, g.contact_ptr
+end
+
+function simulate!(global_data::GlobalData, threads; domain_min, cell_size, hash_table_size, dt, tolerance, gravity, global_damping, init = false)
+    clear_state!(global_data)
+    contact!(global_data, threads; domain_min = domain_min, cell_size = cell_size, hash_table_size = hash_table_size, dt = dt, tolerance = tolerance, init = init)
+    resolve_wall!(global_data, threads; dt = dt, tolerance = tolerance)
+    apply_body_force!(global_data, threads; gravity = gravity, global_damping = global_damping)
+    update!(global_data, threads; dt = dt)
+    late_clear_state!(global_data, threads)
+end
+
 function solve(cfg_filename; save_snapshot = false, save_information = true)
+    # Release memory in case there are leftovers from previous runs
+    CUDA.reclaim()
+
     start_time = time_ns()
 
     cfg = from_toml(DEMConfig{Int32, Float64}, cfg_filename)
@@ -74,7 +235,7 @@ function solve(cfg_filename; save_snapshot = false, save_information = true)
 
     # Translational attributes, all in GLOBAL coordinates
     kid = CUDA.zeros(Vec3i, n) # Position id
-    hid = CUDA.zeros(Int32, n) # Position hash
+    hid = CUDA.zeros(UInt32, n) # Position hash
     kcenter = CUDA.zeros(Vec3, n) # Position center
     neighbor_cells = CUDA.zeros(Vec8i, n) # Position neighbor cells
 
@@ -87,18 +248,20 @@ function solve(cfg_filename; save_snapshot = false, save_information = true)
     cell_size = 4rₘₐₓ
     hash_table_size = clamp(prod(ceil.(Int32, (domain_max - domain_min) / cell_size)),
                             1 << 20, 1 << 22)
-    hash_table = CUDA.zeros(Int32, hash_table_size)
+    hash_table = CUDA.zeros(UInt32, hash_table_size)
     hash_table_current = similar(hash_table)
 
-    pid = CUDA.zeros(Int32, n)
+    pid = CUDA.zeros(UInt32, n)
     cp_list = CUDA.zeros(Vec2i, n * collision_pair_init_capacity_factor)
-    cp_range = CUDA.zeros(Int32, n)
+    cp_range = CUDA.zeros(UInt32, n)
     cp_range_current = similar(cp_range)
 
+    contact_ptr = CUDA.zeros(UInt32, 1)
     contacts = CuVector{ContactDefault}(undef, n * max_coordinate_number)
-    contact_active = CUDA.zeros(Bool, n * max_coordinate_number)
-    contact_bonded = CUDA.zeros(Bool, n * max_coordinate_number)
-    contact_count = CUDA.zeros(Int32, n)
+    contact_ptr_temp = CUDA.zeros(UInt32, 1)
+    contacts_temp = CuVector{ContactDefault}(undef, n * max_coordinate_number)
+    contact_active = CUDA.zeros(UInt32, (nextpow(2, n)^2) >> 5)
+    contact_bonded = CUDA.zeros(UInt32, (nextpow(2, n)^2) >> 5)
 
     # FIXME: materials are hard-coded
     materials = cu([
@@ -136,138 +299,41 @@ function solve(cfg_filename; save_snapshot = false, save_information = true)
     wall_contacts = CuMatrix{ContactDefault}(undef, nwall, n)
 
     threads = 256
-    blocks = cld(n, threads)
+    global_data = GlobalData(grains,
+                             kid,
+                             hid,
+                             kcenter,
+                             neighbor_cells,
+                             materials,
+                             surfaces,
+                             walls,
+                             wall_contacts,
+                             forces,
+                             moments,
+                             hash_table,
+                             hash_table_current,
+                             pid,
+                             cp_list,
+                             cp_range,
+                             cp_range_current,
+                             contacts,
+                             contact_ptr,
+                             contacts_temp,
+                             contact_ptr_temp,
+                             contact_active,
+                             contact_bonded)
 
     @info "Setting:" hash_table_size cell_size
 
-    function clear_state()
-        fill!(forces, 0)
-        fill!(moments, 0)
-    end
-
-    cell_m(g) = cell(g.𝐤, domain_min, cell_size)
-    hashcode_m(ijk) = hashcode(ijk, hash_table_size)
-    center_m(ijk) = center(ijk, domain_min, cell_size)
-    neighbors_m(g, ijk, c) = neighbors(g.𝐤, ijk, c, hash_table_size)
-
-    function contact(; init = false)
-        # Precalculate cell ijk, hash code, center and neighbors
-        map!(cell_m, kid, grains)
-        map!(hashcode_m, hid, kid)
-        map!(center_m, kcenter, kid)
-        map!(neighbors_m, neighbor_cells, grains, kid, kcenter)
-
-        # Setup hash table
-        fill!(hash_table, 0)
-        @cuda threads=threads blocks=blocks count_particles!(hash_table, hid)
-        accumulate!(+, hash_table_current, hash_table)
-        @cuda threads=threads blocks=blocks get_particle_id!(pid,
-                                                             hash_table_current,
-                                                             hid)
-
-        # Detect collision
-        fill!(cp_range, 0)
-        @cuda threads=threads blocks=blocks search_hash_table!(cp_range,
-                                                               hash_table,
-                                                               hash_table_current,
-                                                               neighbor_cells,
-                                                               pid)
-        accumulate!(+, cp_range_current, cp_range)
-        total = CUDA.@allowscalar cp_range_current[end]
-        cap = length(cp_list)
-        while cap < total
-            cap <<= 1
-        end
-        if cap > length(cp_list)
-            resize!(cp_list, cap)
-            @info "Resize CP List: $(length(cp_list))"
-        end
-
-        @cuda threads=threads blocks=blocks update_cp_list!(cp_list,
-                                                            cp_range_current,
-                                                            hash_table,
-                                                            hash_table_current,
-                                                            neighbor_cells,
-                                                            pid)
-
-        # Resolve collision
-        if init
-            @cuda threads=threads blocks=cld(total, threads) init_bonds!(contacts,
-                                                                         contact_active,
-                                                                         contact_bonded,
-                                                                         contact_count,
-                                                                         cp_list,
-                                                                         total,
-                                                                         grains,
-                                                                         max_coordinate_number)
-        else
-            @cuda threads=threads blocks=cld(total, threads) resolve_collision!(contacts,
-                                                                                contact_active,
-                                                                                contact_bonded,
-                                                                                contact_count,
-                                                                                forces,
-                                                                                moments,
-                                                                                cp_list,
-                                                                                total,
-                                                                                grains,
-                                                                                materials,
-                                                                                surfaces,
-                                                                                max_coordinate_number,
-                                                                                dt,
-                                                                                tolerance)
-        end
-    end
-
-    function resolve_wall()
-        @cuda threads=threads blocks=blocks resolve_wall!(wall_contacts,
-                                                          forces,
-                                                          moments,
-                                                          grains,
-                                                          walls,
-                                                          nwall,
-                                                          materials,
-                                                          surfaces,
-                                                          dt,
-                                                          tolerance)
-    end
-
-    function apply_body_force()
-        @cuda threads=threads blocks=blocks apply_body_force!(forces,
-                                                              moments,
-                                                              grains,
-                                                              gravity,
-                                                              global_damping)
-    end
-
-    function update()
-        @cuda threads=threads blocks=blocks update!(grains, forces, moments, dt)
-    end
-
-    function late_clear_state()
-        @cuda threads=threads blocks=blocks remove_inactive_contact!(contacts,
-                                                                     contact_active,
-                                                                     contact_bonded,
-                                                                     contact_count,
-                                                                     grains,
-                                                                     max_coordinate_number)
-    end
-
-    function simulate(; init = false)
-        clear_state()
-        contact(init = init)
-        resolve_wall()
-        apply_body_force()
-        update()
-        late_clear_state()
-    end
-
     step = 0
-    simulate(init = true)
+    simulate!(global_data, threads; domain_min = domain_min, cell_size = cell_size, hash_table_size = hash_table_size, dt = dt, tolerance = tolerance, gravity= gravity, global_damping = global_damping, init = true)
 
     if save_information
         p4p = open("output.p4p", "w")
         p4c = open("output.p4c", "w")
-        save_single(grains, contacts, contact_active, contact_bonded, p4p, p4c, 0.0)
+        total_contacts = CUDA.@allowscalar global_data.contact_ptr[1]
+        save_single(grains, global_data.contacts, total_contacts, contact_active, contact_bonded, p4p,
+                    p4c, 0.0)
     end
 
     # # Debug use
@@ -277,7 +343,7 @@ function solve(cfg_filename; save_snapshot = false, save_information = true)
         t₁ = time_ns()
         for _ in 1:save_per_steps
             step += 1
-            simulate()
+            simulate!(global_data, threads; domain_min = domain_min, cell_size = cell_size, hash_table_size = hash_table_size, dt = dt, tolerance = tolerance, gravity= gravity, global_damping = global_damping)
         end
         t₂ = time_ns()
 
@@ -289,8 +355,9 @@ function solve(cfg_filename; save_snapshot = false, save_information = true)
         end
 
         if save_information
-            save_single(grains, contacts, contact_active, contact_bonded, p4p, p4c,
-                        step * dt)
+            total_contacts = CUDA.@allowscalar global_data.contact_ptr[1]
+            save_single(grains, global_data.contacts, total_contacts, contact_active, contact_bonded,
+                        p4p, p4c, step * dt)
         end
     end
 

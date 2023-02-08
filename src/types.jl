@@ -68,14 +68,3 @@ Base.@kwdef struct Contact{I <: Integer, F <: AbstractFloat}
 end
 
 const ContactDefault = Contact{Int32, Float64}
-
-struct IOContact{I <: Integer, F <: AbstractFloat}
-    i::I
-    j::I
-    𝐤::SVector{3, F}
-    𝐅ₐ::SVector{3, F}
-    bonded::Bool
-    active::Bool
-end
-
-const IOContactDefault = IOContact{Int32, Float64}

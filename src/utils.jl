@@ -15,7 +15,20 @@ function neighbors(o, ijk, c, hash_table_size)
     ]
 end
 
-function save_single(grains, contacts, contact_active, contact_bonded, p4p, p4c, t)
+@inline function get_bit(bs, idx)
+    return (bs[idx >> 5 + 1] & (UInt32(1) << (idx & 31))) != 0
+end
+
+@inline function set_bit!(bs, idx)
+    CUDA.atomic_or!(pointer(bs, idx >> 5 + 1), UInt32(1) << (idx & 31))
+end
+
+@inline function clear_bit!(bs, idx)
+    CUDA.atomic_and!(pointer(bs, idx >> 5 + 1), ~(UInt32(1) << (idx & 31)))
+end
+
+function save_single(grains, contacts, total_contacts, contact_active, contact_bonded, p4p, p4c, t)
+    @info "Start saving..."
     t₁ = time_ns()
     n = length(grains)
 
@@ -31,18 +44,20 @@ function save_single(grains, contacts, contact_active, contact_bonded, p4p, p4c,
 
     println(p4c, "TIMESTEP CONTACTS")
 
-    c = Array(contacts)
+    c = Array(contacts[1:total_contacts])
     ca = Array(contact_active)
     cb = Array(contact_bonded)
     cache = String[]
-    for (contact, active, bonded) in zip(c, ca, cb)
-        if active
-            i = contact.i
-            j = contact.j
+    for contact in c
+        i = contact.i
+        j = contact.j
+        ij = UInt64(i - 1) * n +  j
+        if get_bit(ca, ij)
+            bonded = get_bit(cb, ij)
             𝐤 = contact.𝐤
             𝐅ᵢ = contact.𝐅ᵢ
             push!(cache,
-                  "$i $j $(𝐤[1]) $(𝐤[2]) $(𝐤[3]) $(𝐅ᵢ[1]) $(𝐅ᵢ[2]) $(𝐅ᵢ[3]) $(Int(bonded))\n")
+                    "$i $j $(𝐤[1]) $(𝐤[2]) $(𝐤[3]) $(𝐅ᵢ[1]) $(𝐅ᵢ[2]) $(𝐅ᵢ[3]) $(Int(bonded))\n")
         end
     end
 
@@ -52,7 +67,7 @@ function save_single(grains, contacts, contact_active, contact_bonded, p4p, p4c,
 
     t₂ = time_ns()
     Δt = (t₂ - t₁) * 1e-9
-    @info "Checkpoint saved!" Δt
+    @info "Checkpoint saved! $(length(cache)) active contacts" Δt
 end
 
 function snapshot(grains, step)
