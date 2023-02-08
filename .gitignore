@@ -5,3 +5,5 @@ output*
 /*.jl
 *.log
 snapshot*
+/*.so*
+*.nsys-rep

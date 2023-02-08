@@ -7,7 +7,7 @@ end
 function count_particles!(hash_table, hid)
     index = (blockIdx().x - 1) * blockDim().x + threadIdx().x
     stride = gridDim().x * blockDim().x
-    for i = index:stride:length(hid)
+    for i in index:stride:length(hid)
         CUDA.atomic_add!(pointer(hash_table, hid[i]), Int32(1))
     end
 end
@@ -15,7 +15,7 @@ end
 function get_particle_id!(pid, hash_table_current, hid)
     index = (blockIdx().x - 1) * blockDim().x + threadIdx().x
     stride = gridDim().x * blockDim().x
-    for i = index:stride:length(hid)
+    for i in index:stride:length(hid)
         id = CUDA.atomic_add!(pointer(hash_table_current, hid[i]), Int32(-1))
         pid[id] = i
     end
@@ -24,9 +24,9 @@ end
 function search_hash_table!(cp_range, hash_table, hash_table_current, neighbors, pid)
     index = (blockIdx().x - 1) * blockDim().x + threadIdx().x
     stride = gridDim().x * blockDim().x
-    for i = index:stride:length(pid)
+    for i in index:stride:length(pid)
         for idx in neighbors[i]
-            for k = (hash_table_current[idx]+1):(hash_table_current[idx]+hash_table[idx])
+            for k in (hash_table_current[idx] + 1):(hash_table_current[idx] + hash_table[idx])
                 j = pid[k]
                 if i < j
                     CUDA.atomic_add!(pointer(cp_range, i), Int32(1))
@@ -36,19 +36,17 @@ function search_hash_table!(cp_range, hash_table, hash_table_current, neighbors,
     end
 end
 
-function update_cp_list!(
-    cp_list,
-    cp_range_current,
-    hash_table,
-    hash_table_current,
-    neighbors,
-    pid,
-)
+function update_cp_list!(cp_list,
+                         cp_range_current,
+                         hash_table,
+                         hash_table_current,
+                         neighbors,
+                         pid)
     index = (blockIdx().x - 1) * blockDim().x + threadIdx().x
     stride = gridDim().x * blockDim().x
-    for i = index:stride:length(pid)
+    for i in index:stride:length(pid)
         for idx in neighbors[i]
-            for k = (hash_table_current[idx]+1):(hash_table_current[idx]+hash_table[idx])
+            for k in (hash_table_current[idx] + 1):(hash_table_current[idx] + hash_table[idx])
                 j = pid[k]
                 if i < j
                     current = CUDA.atomic_add!(pointer(cp_range_current, i), Int32(-1))
@@ -59,21 +57,19 @@ function update_cp_list!(
     end
 end
 
-function init_bonds!(
-    contacts,
-    contact_active,
-    contact_bonded,
-    contact_count,
-    cp_list,
-    cp_range,
-    cp_range_current,
-    grains,
-    max_coordinate_number,
-)
+function init_bonds!(contacts,
+                     contact_active,
+                     contact_bonded,
+                     contact_count,
+                     cp_list,
+                     cp_range,
+                     cp_range_current,
+                     grains,
+                     max_coordinate_number)
     index = (blockIdx().x - 1) * blockDim().x + threadIdx().x
     stride = gridDim().x * blockDim().x
-    for i = index:stride:length(grains)
-        for idx = (cp_range_current[i]+1):(cp_range_current[i]+cp_range[i])
+    for i in index:stride:length(grains)
+        for idx in (cp_range_current[i] + 1):(cp_range_current[i] + cp_range[i])
             j = cp_list[idx]
             if norm(grains[i].𝐤 - grains[j].𝐤) < grains[i].r₀ + grains[j].r₀
                 offset = contact_count[i] += 1
@@ -85,17 +81,15 @@ function init_bonds!(
 
                 if offset > 0
                     # FIXME: material type is hard-coded
-                    contacts[offset] = ContactDefault(
-                        i,
-                        j,
-                        1,
-                        1,
-                        zero(Vec3),
-                        zero(Vec3),
-                        zero(Vec3),
-                        zero(Vec3),
-                        zero(Vec3),
-                    )
+                    contacts[offset] = ContactDefault(i,
+                                                      j,
+                                                      1,
+                                                      1,
+                                                      zero(Vec3),
+                                                      zero(Vec3),
+                                                      zero(Vec3),
+                                                      zero(Vec3),
+                                                      zero(Vec3))
                     contact_active[offset] = true
                     contact_bonded[offset] = true
                 end
@@ -104,27 +98,25 @@ function init_bonds!(
     end
 end
 
-function resolve_collision!(
-    contacts,
-    contact_active,
-    contact_bonded,
-    contact_count,
-    forces,
-    moments,
-    cp_list,
-    cp_range,
-    cp_range_current,
-    grains,
-    materials,
-    surfaces,
-    max_coordinate_number,
-    dt,
-    tolerance,
-)
+function resolve_collision!(contacts,
+                            contact_active,
+                            contact_bonded,
+                            contact_count,
+                            forces,
+                            moments,
+                            cp_list,
+                            cp_range,
+                            cp_range_current,
+                            grains,
+                            materials,
+                            surfaces,
+                            max_coordinate_number,
+                            dt,
+                            tolerance)
     index = (blockIdx().x - 1) * blockDim().x + threadIdx().x
     stride = gridDim().x * blockDim().x
-    for i = index:stride:length(grains)
-        for idx = (cp_range_current[i]+1):(cp_range_current[i]+cp_range[i])
+    for i in index:stride:length(grains)
+        for idx in (cp_range_current[i] + 1):(cp_range_current[i] + cp_range[i])
             j = cp_list[idx]
 
             ev = false
@@ -139,7 +131,8 @@ function resolve_collision!(
             end
 
             if offset > 0
-                if contact_bonded[offset] || norm(grains[i].𝐤 - grains[j].𝐤) < grains[i].r + grains[j].r
+                if contact_bonded[offset] ||
+                   norm(grains[i].𝐤 - grains[j].𝐤) < grains[i].r + grains[j].r
                     ev = true
                 else
                     contact_active[offset] = false
@@ -154,17 +147,15 @@ function resolve_collision!(
 
                 if offset > 0
                     # FIXME: material type is hard-coded
-                    contacts[offset] = ContactDefault(
-                        i,
-                        j,
-                        1,
-                        1,
-                        zero(Vec3),
-                        zero(Vec3),
-                        zero(Vec3),
-                        zero(Vec3),
-                        zero(Vec3),
-                    )
+                    contacts[offset] = ContactDefault(i,
+                                                      j,
+                                                      1,
+                                                      1,
+                                                      zero(Vec3),
+                                                      zero(Vec3),
+                                                      zero(Vec3),
+                                                      zero(Vec3),
+                                                      zero(Vec3))
                     contact_active[offset] = true
                     contact_bonded[offset] = false
                     ev = true
@@ -180,23 +171,16 @@ function resolve_collision!(
 
                 if s < tolerance
                     sign = c > 0.0 ? 1.0 : -1.0
-                    𝐑 = @SMatrix [
-                        sign 0.0 0.0
-                        0.0 1.0 0.0
-                        0.0 0.0 sign
-                    ]
+                    𝐑 = @SMatrix [sign 0.0 0.0
+                                  0.0 1.0 0.0
+                                  0.0 0.0 sign]
                 else
-                    vx = @SMatrix [
-                        0.0 -v[3] v[2]
-                        v[3] 0.0 -v[1]
-                        -v[2] v[1] 0.0
-                    ]
-                    𝐑 =
-                        @SMatrix([
-                            1.0 0.0 0.0
-                            0.0 1.0 0.0
-                            0.0 0.0 1.0
-                        ]) +
+                    vx = @SMatrix [0.0 -v[3] v[2]
+                                   v[3] 0.0 -v[1]
+                                   -v[2] v[1] 0.0]
+                    𝐑 = @SMatrix([1.0 0.0 0.0
+                                  0.0 1.0 0.0
+                                  0.0 0.0 1.0]) +
                         vx +
                         vx^2 * (1.0 - c) / s^2
                 end
@@ -226,22 +210,15 @@ function resolve_collision!(
                     k₅ = Eⱼ * Iⱼ * (4.0 + ϕ) / Lⱼ / (1.0 + ϕ)
                     k₆ = Eⱼ * Iⱼ * (2.0 - ϕ) / Lⱼ / (1.0 + ϕ)
 
-                    Δ𝐅ᵢ = Vec3(
-                        k₁ * (𝐝ᵢ[1] - 𝐝ⱼ[1]),
-                        k₂ * (𝐝ᵢ[2] - 𝐝ⱼ[2]) + k₃ * (𝛉ᵢ[3] + 𝛉ⱼ[3]),
-                        k₂ * (𝐝ᵢ[3] - 𝐝ⱼ[3]) - k₃ * (𝛉ᵢ[2] + 𝛉ⱼ[2]),
-                    )
-
-                    Δ𝛕ᵢ = Vec3(
-                        k₄ * (𝛉ᵢ[1] - 𝛉ⱼ[1]),
-                        k₃ * (𝐝ⱼ[3] - 𝐝ᵢ[3]) + k₅ * 𝛉ᵢ[2] + k₆ * 𝛉ⱼ[2],
-                        k₃ * (𝐝ᵢ[2] - 𝐝ⱼ[2]) + k₅ * 𝛉ᵢ[3] + k₆ * 𝛉ⱼ[3],
-                    )
-                    Δ𝛕ⱼ = Vec3(
-                        k₄ * (𝛉ⱼ[1] - 𝛉ᵢ[1]),
-                        k₃ * (𝐝ⱼ[3] - 𝐝ᵢ[3]) + k₆ * 𝛉ᵢ[2] + k₅ * 𝛉ⱼ[2],
-                        k₃ * (𝐝ᵢ[2] - 𝐝ⱼ[2]) + k₆ * 𝛉ᵢ[3] + k₅ * 𝛉ⱼ[3],
-                    )
+                    Δ𝐅ᵢ = Vec3(k₁ * (𝐝ᵢ[1] - 𝐝ⱼ[1]),
+                               k₂ * (𝐝ᵢ[2] - 𝐝ⱼ[2]) + k₃ * (𝛉ᵢ[3] + 𝛉ⱼ[3]),
+                               k₂ * (𝐝ᵢ[3] - 𝐝ⱼ[3]) - k₃ * (𝛉ᵢ[2] + 𝛉ⱼ[2]))
+                    Δ𝛕ᵢ = Vec3(k₄ * (𝛉ᵢ[1] - 𝛉ⱼ[1]),
+                               k₃ * (𝐝ⱼ[3] - 𝐝ᵢ[3]) + k₅ * 𝛉ᵢ[2] + k₆ * 𝛉ⱼ[2],
+                               k₃ * (𝐝ᵢ[2] - 𝐝ⱼ[2]) + k₅ * 𝛉ᵢ[3] + k₆ * 𝛉ⱼ[3])
+                    Δ𝛕ⱼ = Vec3(k₄ * (𝛉ⱼ[1] - 𝛉ᵢ[1]),
+                               k₃ * (𝐝ⱼ[3] - 𝐝ᵢ[3]) + k₆ * 𝛉ᵢ[2] + k₅ * 𝛉ⱼ[2],
+                               k₃ * (𝐝ᵢ[2] - 𝐝ⱼ[2]) + k₆ * 𝛉ᵢ[3] + k₅ * 𝛉ⱼ[3])
 
                     𝐅ᵢ = contacts[offset].𝐅ᵢ + Δ𝐅ᵢ
                     𝐅ⱼ = -𝐅ᵢ
@@ -271,22 +248,19 @@ function resolve_collision!(
                         atomic_add_vec3!(moments, 3 * j - 2, 𝐑⁻¹ * -𝛕ⱼ)
                     end
 
-                    contacts[offset] = ContactDefault(
-                        contacts[offset].i,
-                        contacts[offset].j,
-                        contacts[offset].midᵢ,
-                        contacts[offset].midⱼ,
-                        𝐤,
-                        𝐅ᵢ,
-                        𝛕ᵢ,
-                        𝛕ⱼ,
-                        zero(Vec3),
-                    )
+                    contacts[offset] = ContactDefault(contacts[offset].i,
+                                                      contacts[offset].j,
+                                                      contacts[offset].midᵢ,
+                                                      contacts[offset].midⱼ,
+                                                      𝐤,
+                                                      𝐅ᵢ,
+                                                      𝛕ᵢ,
+                                                      𝛕ⱼ,
+                                                      zero(Vec3))
                 else # Non-bonded, use Hertz-Mindlin
                     gap = Lᵢ - grains[i].r - grains[j].r # gap must be negative to ensure an intact contact
                     Δn = abs(gap)
-                    𝐤 =
-                        grains[i].𝐤 +
+                    𝐤 = grains[i].𝐤 +
                         normalize(grains[j].𝐤 - grains[i].𝐤) * (grains[i].r - Δn)
                     𝐤ᵢ = 𝐤 - grains[i].𝐤
                     𝐤ⱼ = 𝐤 - grains[j].𝐤
@@ -301,11 +275,8 @@ function resolve_collision!(
                     νⱼ = materials[midⱼ].ν
                     Eⱼ = materials[midⱼ].E
                     Y✶ = 1.0 / ((1.0 - νᵢ^2) / Eᵢ + (1.0 - νⱼ^2) / Eⱼ)
-                    G✶ =
-                        1.0 / (
-                            2.0 * (2.0 - νᵢ) * (1.0 + νᵢ) / Eᵢ +
-                            2.0 * (2.0 - νⱼ) * (1.0 + νⱼ) / Eⱼ
-                        )
+                    G✶ = 1.0 / (2.0 * (2.0 - νᵢ) * (1.0 + νᵢ) / Eᵢ +
+                          2.0 * (2.0 - νⱼ) * (1.0 + νⱼ) / Eⱼ)
                     R✶ = 1.0 / (1.0 / grains[i].r + 1.0 / grains[j].r)
                     m✶ = 1.0 / (1.0 / grains[i].m + 1.0 / grains[j].m)
                     β = log(surfaces[midᵢ, midⱼ].e) / √(log(surfaces[midᵢ, midⱼ].e)^2 + π^2)
@@ -343,39 +314,35 @@ function resolve_collision!(
                     atomic_add_vec3!(moments, 3 * i - 2, 𝐤ᵢ × 𝐅ᵢ𝑔)
                     atomic_add_vec3!(moments, 3 * j - 2, 𝐤ⱼ × -𝐅ᵢ𝑔)
 
-                    contacts[offset] = ContactDefault(
-                        contacts[offset].i,
-                        contacts[offset].j,
-                        contacts[offset].midᵢ,
-                        contacts[offset].midⱼ,
-                        𝐤,
-                        𝐅ᵢ,
-                        contacts[offset].𝛕ᵢ,
-                        contacts[offset].𝛕ⱼ,
-                        𝐬,
-                    )
+                    contacts[offset] = ContactDefault(contacts[offset].i,
+                                                      contacts[offset].j,
+                                                      contacts[offset].midᵢ,
+                                                      contacts[offset].midⱼ,
+                                                      𝐤,
+                                                      𝐅ᵢ,
+                                                      contacts[offset].𝛕ᵢ,
+                                                      contacts[offset].𝛕ⱼ,
+                                                      𝐬)
                 end
             end
         end
     end
 end
 
-function resolve_wall!(
-    wall_contacts,
-    forces,
-    moments,
-    grains,
-    walls,
-    nwall,
-    materials,
-    surfaces,
-    dt,
-    tolerance,
-)
+function resolve_wall!(wall_contacts,
+                       forces,
+                       moments,
+                       grains,
+                       walls,
+                       nwall,
+                       materials,
+                       surfaces,
+                       dt,
+                       tolerance)
     index = (blockIdx().x - 1) * blockDim().x + threadIdx().x
     stride = gridDim().x * blockDim().x
-    for i = index:stride:length(grains)
-        for j = 1:nwall
+    for i in index:stride:length(grains)
+        for j in 1:nwall
             if abs(grains[i].𝐤 ⋅ walls[j].𝐧 - walls[j].d) < grains[i].r
                 a = walls[j].𝐧
                 b = @SVector [1.0, 0.0, 0.0] # Local x coordinate
@@ -385,23 +352,16 @@ function resolve_wall!(
 
                 if s < tolerance
                     sign = c > 0.0 ? 1.0 : -1.0
-                    𝐑 = @SMatrix [
-                        sign 0.0 0.0
-                        0.0 1.0 0.0
-                        0.0 0.0 sign
-                    ]
+                    𝐑 = @SMatrix [sign 0.0 0.0
+                                  0.0 1.0 0.0
+                                  0.0 0.0 sign]
                 else
-                    vx = @SMatrix [
-                        0.0 -v[3] v[2]
-                        v[3] 0.0 -v[1]
-                        -v[2] v[1] 0.0
-                    ]
-                    𝐑 =
-                        @SMatrix([
-                            1.0 0.0 0.0
-                            0.0 1.0 0.0
-                            0.0 0.0 1.0
-                        ]) +
+                    vx = @SMatrix [0.0 -v[3] v[2]
+                                   v[3] 0.0 -v[1]
+                                   -v[2] v[1] 0.0]
+                    𝐑 = @SMatrix([1.0 0.0 0.0
+                                  0.0 1.0 0.0
+                                  0.0 0.0 1.0]) +
                         vx +
                         vx^2 * (1.0 - c) / s^2
                 end
@@ -422,11 +382,8 @@ function resolve_wall!(
                 νⱼ = materials[midⱼ].ν
                 Eⱼ = materials[midⱼ].E
                 Y✶ = 1.0 / ((1.0 - νᵢ^2) / Eᵢ + (1.0 - νⱼ^2) / Eⱼ)
-                G✶ =
-                    1.0 / (
-                        2.0 * (2.0 - νᵢ) * (1.0 + νᵢ) / Eᵢ +
-                        2.0 * (2.0 - νⱼ) * (1.0 + νⱼ) / Eⱼ
-                    )
+                G✶ = 1.0 / (2.0 * (2.0 - νᵢ) * (1.0 + νᵢ) / Eᵢ +
+                      2.0 * (2.0 - νⱼ) * (1.0 + νⱼ) / Eⱼ)
                 R✶ = grains[i].r
                 m✶ = grains[i].m
                 β = log(surfaces[midᵢ, midⱼ].e) / √(log(surfaces[midᵢ, midⱼ].e)^2 + π^2)
@@ -461,17 +418,15 @@ function resolve_wall!(
                 atomic_add_vec3!(forces, 3 * i - 2, 𝐅ᵢ𝑔)
                 atomic_add_vec3!(moments, 3 * i - 2, 𝐤ᵢ × 𝐅ᵢ𝑔)
 
-                wall_contacts[j, i] = ContactDefault(
-                    i,
-                    0,
-                    midᵢ,
-                    midⱼ,
-                    𝐤,
-                    𝐅ᵢ,
-                    wall_contacts[j, i].𝛕ᵢ,
-                    wall_contacts[j, i].𝛕ⱼ,
-                    𝐬,
-                )
+                wall_contacts[j, i] = ContactDefault(i,
+                                                     0,
+                                                     midᵢ,
+                                                     midⱼ,
+                                                     𝐤,
+                                                     𝐅ᵢ,
+                                                     wall_contacts[j, i].𝛕ᵢ,
+                                                     wall_contacts[j, i].𝛕ⱼ,
+                                                     𝐬)
             end
         end
     end
@@ -480,7 +435,7 @@ end
 function apply_body_force!(forces, moments, grains, gravity, global_damping)
     index = (blockIdx().x - 1) * blockDim().x + threadIdx().x
     stride = gridDim().x * blockDim().x
-    for i = index:stride:length(grains)
+    for i in index:stride:length(grains)
         # Add gravity
         atomic_add_vec3!(forces, 3 * i - 2, gravity * grains[i].m)
 
@@ -497,8 +452,8 @@ end
 function update!(grains, forces, moments, dt)
     index = (blockIdx().x - 1) * blockDim().x + threadIdx().x
     stride = gridDim().x * blockDim().x
-    for i = index:stride:length(grains)
-        𝐅 = Vec3(forces[3*i-2], forces[3*i-1], forces[3*i])
+    for i in index:stride:length(grains)
+        𝐅 = Vec3(forces[3 * i - 2], forces[3 * i - 1], forces[3 * i])
         𝐚 = 𝐅 / grains[i].m
         𝐤 = grains[i].𝐤 + grains[i].𝐯 * dt + 0.5 * 𝐚 * dt^2
         𝐯 = grains[i].𝐯 + 𝐚 * dt
@@ -506,7 +461,7 @@ function update!(grains, forces, moments, dt)
         𝐪 = grains[i].𝐪
         𝛚 = grains[i].𝛚
         𝐑 = to_rotation_matrix(𝐪)
-        𝛕 = Vec3(moments[3*i-2], moments[3*i-1], moments[3*i])
+        𝛕 = Vec3(moments[3 * i - 2], moments[3 * i - 1], moments[3 * i])
         𝛕𝑙 = 𝐑 * 𝛕 # Local angular moment
         𝛚𝑙 = 𝐑 * 𝛚 # Local angular velocity
         d𝛚𝑙 = inv(grains[i].𝐈) * (𝛕𝑙 - 𝛚𝑙 × (grains[i].𝐈 * 𝛚𝑙)) # Local angular acceleration
@@ -519,53 +474,46 @@ function update!(grains, forces, moments, dt)
         𝐪 = normalize(𝐪 + Quaternion(Δq₁, Δq₂, Δq₃, Δq₄))
         𝛚 += d𝛚 * dt
 
-        grains[i] = GrainDefault(
-            grains[i].id,
-            grains[i].gid,
-            grains[i].mid,
-            grains[i].V,
-            grains[i].m,
-            grains[i].r,
-            grains[i].r₀,
-            𝐤,
-            𝐯,
-            𝐚,
-            𝐪,
-            𝛚,
-            d𝛚,
-            grains[i].𝐈,
-        )
+        grains[i] = GrainDefault(grains[i].id,
+                                 grains[i].gid,
+                                 grains[i].mid,
+                                 grains[i].V,
+                                 grains[i].m,
+                                 grains[i].r,
+                                 grains[i].r₀,
+                                 𝐤,
+                                 𝐯,
+                                 𝐚,
+                                 𝐪,
+                                 𝛚,
+                                 d𝛚,
+                                 grains[i].𝐈)
     end
 end
 
-
-function remove_inactive_contact!(
-    contacts,
-    contact_active,
-    contact_bonded,
-    contact_count,
-    grains,
-    max_coordinate_number,
-)
+function remove_inactive_contact!(contacts,
+                                  contact_active,
+                                  contact_bonded,
+                                  contact_count,
+                                  grains,
+                                  max_coordinate_number)
     index = (blockIdx().x - 1) * blockDim().x + threadIdx().x
     stride = gridDim().x * blockDim().x
-    for i = index:stride:length(grains)
+    for i in index:stride:length(grains)
         active_count = 0
-        base = (i-1)*max_coordinate_number
-        for j = 1:contact_count[i]
-            if contact_active[base+j]
+        base = (i - 1) * max_coordinate_number
+        for j in 1:contact_count[i]
+            if contact_active[base + j]
                 active_count += 1
             end
         end
 
         offset = 1
-        for j = 1:contact_count[i]
-            if contact_active[base+j]
-                contact_active[base+offset] = true
-                contact_bonded[base+offset] =
-                    contact_bonded[base+j]
-                contacts[base+offset] =
-                    contacts[base+j]
+        for j in 1:contact_count[i]
+            if contact_active[base + j]
+                contact_active[base + offset] = true
+                contact_bonded[base + offset] = contact_bonded[base + j]
+                contacts[base + offset] = contacts[base + j]
                 offset += 1
                 if offset > active_count
                     break
@@ -573,8 +521,8 @@ function remove_inactive_contact!(
             end
         end
 
-        for j = active_count+1:contact_count[i]
-            contact_active[(i-1)*max_coordinate_number+j] = false
+        for j in (active_count + 1):contact_count[i]
+            contact_active[(i - 1) * max_coordinate_number + j] = false
         end
         contact_count[i] = active_count
     end
