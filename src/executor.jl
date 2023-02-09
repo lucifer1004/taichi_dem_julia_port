@@ -244,7 +244,10 @@ function solve(cfg_filename; save_snapshot = false, save_information = true)
                      zero(Vec3),
                      𝐈)
     end
-    material_density = grains_cpu[1].m / grains_cpu[1].V
+
+    # Follow baseline solution's convention
+    material_density = grains_cpu[end].m / grains_cpu[end].V
+
     # Calculate neighbor search radius
     rₘₐₓ = maximum(g -> g.r, grains_cpu) *
            particle_contact_radius_multiplier *
