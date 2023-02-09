@@ -173,7 +173,7 @@ set_domain_max: Vector3 = Vector3(200.0, 200.0, 90.0)
 set_init_particles: str = "Resources/bunny.p4p"
 
 set_particle_contact_radius_multiplier: Real = 1.1;
-set_neiboring_search_safety_factor: Real = 1.01;
+set_neighboring_search_safety_factor: Real = 1.01;
 set_particle_elastic_modulus: Real = 7e10;
 set_particle_poisson_ratio: Real = 0.25;
 
@@ -185,7 +185,7 @@ set_wall_poisson_ratio: Real = 0.25;
 
 set_bond_radius_ratio: Real = 0.5;
 set_bond_elastic_modulus: Real = 28e9;
-set_bond_poission_ratio: Real = 0.2;
+set_bond_poisson_ratio: Real = 0.2;
 set_bond_compressive_strength: Real = 3e8;
 set_bond_tensile_strength: Real = 6e7;
 set_bond_shear_strength: Real = 6e7;
@@ -286,7 +286,7 @@ def np2csv(name,data):
     np.savetxt(name + ".csv", data, delimiter=",")
 
 def cal_neighbor_search_radius(max_radius):
-    return max_radius * set_particle_contact_radius_multiplier * (1.0 + set_bond_tensile_strength / set_bond_elastic_modulus) * set_neiboring_search_safety_factor
+    return max_radius * set_particle_contact_radius_multiplier * (1.0 + set_bond_tensile_strength / set_bond_elastic_modulus) * set_neighboring_search_safety_factor
 
 def next_pow2(x):
     x -= 1
@@ -1144,7 +1144,7 @@ class DEMSolver:
         # EBPM
         self.surf[0, 0].radius_ratio = set_bond_radius_ratio;
         self.surf[0, 0].elasticModulus = set_bond_elastic_modulus;
-        self.surf[0, 0].poissonRatio = set_bond_poission_ratio;
+        self.surf[0, 0].poissonRatio = set_bond_poisson_ratio;
         self.surf[0, 0].compressiveStrength = set_bond_compressive_strength;
         self.surf[0, 0].tensileStrength = set_bond_tensile_strength;
         self.surf[0, 0].shearStrength = set_bond_shear_strength;
