@@ -1133,7 +1133,7 @@ class DEMSolver:
         # Wall
         self.mf[1].density = set_wall_density;
         self.mf[1].elasticModulus = set_wall_elastic_modulus;
-        self.mf[1].poissionRatio = set_wall_poisson_ratio;
+        self.mf[1].poissonRatio = set_wall_poisson_ratio;
 
         # Surface
         # Particle-particle, including EBPM and Hertz-Mindlin model parameters

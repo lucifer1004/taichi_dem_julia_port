@@ -414,8 +414,8 @@ function resolve_wall!(wall_contacts,
                                                      midⱼ,
                                                      𝐤,
                                                      𝐅ᵢ,
-                                                     wall_contacts[j, i].𝛕ᵢ,
-                                                     wall_contacts[j, i].𝛕ⱼ,
+                                                     zero(Vec3),
+                                                     zero(Vec3),
                                                      𝐬)
             else
                 wall_contacts[j, i] = ContactDefaultZero
