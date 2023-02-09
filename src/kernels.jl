@@ -106,10 +106,8 @@ function update_contacts!(contacts,
                 clear_bit!(contact_active, ij)
             elseif valid
                 offset = CUDA.atomic_add!(pointer(contact_ptr, 1), UInt32(1)) + 1
-
-                # FIXME: material type is hard-coded
                 set_bit!(contact_active, ij)
-                contacts[offset] = ContactDefault(i, j, 1, 1,
+                contacts[offset] = ContactDefault(i, j, grains[i].mid, grains[j].mid,
                                                   zero(Vec3),
                                                   zero(Vec3),
                                                   zero(Vec3),
@@ -228,8 +226,8 @@ function resolve_collision!(contacts,
                 atomic_add_vec3!(moments, 3 * j - 2, 𝐑⁻¹ * -𝛕ⱼ)
             end
 
-            contacts[idx] = ContactDefault(contacts[idx].i,
-                                           contacts[idx].j,
+            contacts[idx] = ContactDefault(i,
+                                           j,
                                            contacts[idx].midᵢ,
                                            contacts[idx].midⱼ,
                                            𝐤,
@@ -264,13 +262,13 @@ function resolve_collision!(contacts,
             kₙ = 4.0 / 3.0 * Y✶ * √(R✶ * Δn)
 
             γₙ = -2.0 * β * √(5.0 / 6.0 * Sₙ * m✶)
-            @debug if γₙ < 0
+            if γₙ < 0
                 @cuprintln("Fatal: γₙ < 0")
             end
 
             kₜ = 8.0 * G✶ * √(R✶ * Δn)
             γₜ = -2.0 * β * √(5.0 / 6.0 * Sₜ * m✶)
-            @debug if γₜ < 0
+            if γₜ < 0
                 @cuprintln("Fatal: γₜ < 0")
             end
 
@@ -297,8 +295,8 @@ function resolve_collision!(contacts,
             atomic_add_vec3!(moments, 3 * i - 2, 𝐤ᵢ × 𝐅ᵢ𝑔)
             atomic_add_vec3!(moments, 3 * j - 2, 𝐤ⱼ × -𝐅ᵢ𝑔)
 
-            contacts[idx] = ContactDefault(contacts[idx].i,
-                                           contacts[idx].j,
+            contacts[idx] = ContactDefault(i,
+                                           j,
                                            contacts[idx].midᵢ,
                                            contacts[idx].midⱼ,
                                            𝐤,
@@ -373,13 +371,13 @@ function resolve_wall!(wall_contacts,
                 kₙ = 4.0 / 3.0 * Y✶ * √(R✶ * Δn)
 
                 γₙ = -2.0 * β * √(5.0 / 6.0 * Sₙ * m✶)
-                @debug if γₙ < 0
+                if γₙ < 0
                     @cuprintln("[Resolve Wall] Fatal: γₙ < 0")
                 end
     
                 kₜ = 8.0 * G✶ * √(R✶ * Δn)
                 γₜ = -2.0 * β * √(5.0 / 6.0 * Sₜ * m✶)
-                @debug if γₜ < 0
+                if γₜ < 0
                     @cuprintln("[Resolve Wall] Fatal: γₜ < 0")
                 end
 
@@ -400,9 +398,12 @@ function resolve_wall!(wall_contacts,
 
                 𝐅ᵢ = Vec3(F₁, F₂, F₃)
                 𝐅ᵢ𝑔 = inv(𝐑) * -𝐅ᵢ
+
+                # FIXME: Do not need to use atomics here
                 atomic_add_vec3!(forces, 3 * i - 2, 𝐅ᵢ𝑔)
                 atomic_add_vec3!(moments, 3 * i - 2, 𝐤ᵢ × 𝐅ᵢ𝑔)
 
+                # FIXME: This is not used!
                 wall_contacts[j, i] = ContactDefault(i,
                                                      0,
                                                      midᵢ,
@@ -428,7 +429,7 @@ function apply_body_force!(forces, moments, grains, gravity, global_damping)
         𝐅 = Vec3(forces[3 * i - 2], forces[3 * i - 1], forces[3 * i])
         𝛕 = Vec3(moments[3 * i - 2], moments[3 * i - 1], moments[3 * i])
         Δ𝐅 = @. -global_damping * abs(𝐅) * sign(grains[i].𝐯)
-        Δ𝛕 = @. -global_damping * abs(𝛕) * sign(grains[i].𝛕)
+        Δ𝛕 = @. -global_damping * abs(𝛕) * sign(grains[i].𝛚)
         atomic_add_vec3!(forces, 3 * i - 2, Δ𝐅)
         atomic_add_vec3!(moments, 3 * i - 2, Δ𝛕)
     end
@@ -478,7 +479,7 @@ end
 
 function remove_inactive_contact!(contacts,
                                   contacts_temp,
-                                  contact_ptr_temp,
+                                  contact_ptr,
                                   contact_active,
                                   total_contacts,
                                   grains)
@@ -491,7 +492,7 @@ function remove_inactive_contact!(contacts,
         ij = UInt64(i - 1) * n + j
 
         if get_bit(contact_active, ij)
-            offset = CUDA.atomic_add!(pointer(contact_ptr_temp), UInt32(1)) + 1
+            offset = CUDA.atomic_add!(pointer(contact_ptr), UInt32(1)) + 1
             contacts_temp[offset] = contacts[idx]
         end
     end

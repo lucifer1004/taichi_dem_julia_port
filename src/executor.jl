@@ -24,7 +24,6 @@ mutable struct GlobalData
     contacts::CuArray{ContactDefault, 1, CUDA.Mem.DeviceBuffer}
     contact_ptr::CuArray{UInt32, 1, CUDA.Mem.DeviceBuffer}
     contacts_temp::CuArray{ContactDefault, 1, CUDA.Mem.DeviceBuffer}
-    contact_ptr_temp::CuArray{UInt32, 1, CUDA.Mem.DeviceBuffer}
     contact_active::CuArray{UInt32, 1, CUDA.Mem.DeviceBuffer}
     contact_bonded::CuArray{UInt32, 1, CUDA.Mem.DeviceBuffer}
 end
@@ -34,13 +33,14 @@ function clear_state!(g::GlobalData)
     fill!(g.moments, 0)
 end
 
-function contact!(g::GlobalData, threads; domain_min, cell_size, hash_table_size, dt, tolerance, init = false)
+function contact!(g::GlobalData, threads; domain_min, cell_size, hash_table_size, dt,
+                  tolerance, init = false)
     # Precalculate cell ijk, hash code, center and neighbors
     map!(g -> cell(g.𝐤, domain_min, cell_size), g.kid, g.grains)
     map!(ijk -> hashcode(ijk, hash_table_size), g.hid, g.kid)
     map!(ijk -> center(ijk, domain_min, cell_size), g.kcenter, g.kid)
-    map!((g, ijk, c) -> neighbors(g.𝐤, ijk, c, hash_table_size)
-    , g.neighbor_cells, g.grains, g.kid, g.kcenter)
+    map!((g, ijk, c) -> neighbors(g.𝐤, ijk, c, hash_table_size), g.neighbor_cells, g.grains,
+         g.kid, g.kcenter)
 
     # Setup hash table
     fill!(g.hash_table, 0)
@@ -67,7 +67,7 @@ function contact!(g::GlobalData, threads; domain_min, cell_size, hash_table_size
     end
     if cap > length(g.cp_list)
         resize!(g.cp_list, cap)
-        @info "Resize CP List: $(length(g.cp_list))"
+        @info "Resize contact-pair list to $(length(g.cp_list))"
     end
 
     @cuda threads=threads blocks=blocks update_cp_list!(g.cp_list,
@@ -96,17 +96,19 @@ function contact!(g::GlobalData, threads; domain_min, cell_size, hash_table_size
 
         # Resolve collision
         total_contacts = CUDA.@allowscalar g.contact_ptr[1]
-        @cuda threads=threads blocks=cld(total_contacts, threads) resolve_collision!(g.contacts,
-                                                                                     total_contacts,
-                                                                                     g.contact_active,
-                                                                                     g.contact_bonded,
-                                                                                     g.forces,
-                                                                                     g.moments,
-                                                                                     g.grains,
-                                                                                     g.materials,
-                                                                                     g.surfaces,
-                                                                                     dt,
-                                                                                     tolerance)
+        if total_contacts > 0
+            @cuda threads=threads blocks=cld(total_contacts, threads) resolve_collision!(g.contacts,
+                                                                                         total_contacts,
+                                                                                         g.contact_active,
+                                                                                         g.contact_bonded,
+                                                                                         g.forces,
+                                                                                         g.moments,
+                                                                                         g.grains,
+                                                                                         g.materials,
+                                                                                         g.surfaces,
+                                                                                         dt,
+                                                                                         tolerance)
+        end
     end
 end
 
@@ -124,44 +126,60 @@ end
 
 function apply_body_force!(g::GlobalData, threads; gravity, global_damping)
     @cuda threads=threads blocks=cld(length(g.grains), threads) apply_body_force!(g.forces,
-                                                          g.moments,
-                                                          g.grains,
-                                                          gravity,
-                                                          global_damping)
+                                                                                  g.moments,
+                                                                                  g.grains,
+                                                                                  gravity,
+                                                                                  global_damping)
 end
 
 function update!(g::GlobalData, threads; dt)
-    @cuda threads=threads blocks=cld(length(g.grains), threads) update!(g.grains, g.forces, g.moments, dt)
+    @cuda threads=threads blocks=cld(length(g.grains), threads) update!(g.grains, g.forces,
+                                                                        g.moments, dt)
 end
 
 function late_clear_state!(g::GlobalData, threads)
     total_contacts = CUDA.@allowscalar g.contact_ptr[1]
-    CUDA.@allowscalar g.contact_ptr_temp[1] = 0
-    CUDA.@sync @cuda threads=threads blocks=cld(total_contacts, threads) remove_inactive_contact!(g.contacts,
-                                                                                       g.contacts_temp,
-                                                                                       g.contact_ptr_temp,
-                                                                                       g.contact_active,
-                                                                                       total_contacts,
-                                                                                       g.grains)
+
+    if total_contacts > 0
+        fill!(g.contact_ptr, 0)
+        CUDA.@sync @cuda threads=threads blocks=cld(total_contacts, threads) remove_inactive_contact!(g.contacts,
+                                                                                                  g.contacts_temp,
+                                                                                                  g.contact_ptr,
+                                                                                                  g.contact_active,
+                                                                                                  total_contacts,
+                                                                                                  g.grains)
+    end                                                                                        
+
+    @debug begin
+        inactive = total_contacts - CUDA.@allowscalar g.contact_ptr[1]
+        if !iszero(inactive)
+            @show Int(inactive)
+        end
+    end
+
     g.contacts, g.contacts_temp = g.contacts_temp, g.contacts
-    g.contact_ptr, g.contact_ptr_temp = g.contact_ptr_temp, g.contact_ptr
 end
 
-function simulate!(global_data::GlobalData, threads; domain_min, cell_size, hash_table_size, dt, tolerance, gravity, global_damping, init = false)
+function simulate!(global_data::GlobalData, threads; domain_min, cell_size, hash_table_size,
+                   dt, tolerance, gravity, global_damping, init = false)
     clear_state!(global_data)
-    contact!(global_data, threads; domain_min = domain_min, cell_size = cell_size, hash_table_size = hash_table_size, dt = dt, tolerance = tolerance, init = init)
+    contact!(global_data, threads; domain_min = domain_min, cell_size = cell_size,
+             hash_table_size = hash_table_size, dt = dt, tolerance = tolerance, init = init)
     resolve_wall!(global_data, threads; dt = dt, tolerance = tolerance)
-    apply_body_force!(global_data, threads; gravity = gravity, global_damping = global_damping)
+    apply_body_force!(global_data, threads; gravity = gravity,
+                      global_damping = global_damping)
     update!(global_data, threads; dt = dt)
     late_clear_state!(global_data, threads)
 end
 
 function solve(cfg_filename; save_snapshot = false, save_information = true)
     # Release memory in case there are leftovers from previous runs
+    GC.gc(true)
     CUDA.reclaim()
+    @info "Current memory usage:"
+    CUDA.memory_status()
 
     start_time = time_ns()
-
     cfg = from_toml(DEMConfig{Int32, Float64}, cfg_filename)
     (;
     domain_min,
@@ -258,7 +276,6 @@ function solve(cfg_filename; save_snapshot = false, save_information = true)
 
     contact_ptr = CUDA.zeros(UInt32, 1)
     contacts = CuVector{ContactDefault}(undef, n * max_coordinate_number)
-    contact_ptr_temp = CUDA.zeros(UInt32, 1)
     contacts_temp = CuVector{ContactDefault}(undef, n * max_coordinate_number)
     contact_active = CUDA.zeros(UInt32, (nextpow(2, n)^2) >> 5)
     contact_bonded = CUDA.zeros(UInt32, (nextpow(2, n)^2) >> 5)
@@ -319,20 +336,22 @@ function solve(cfg_filename; save_snapshot = false, save_information = true)
                              contacts,
                              contact_ptr,
                              contacts_temp,
-                             contact_ptr_temp,
                              contact_active,
                              contact_bonded)
 
     @info "Setting:" hash_table_size cell_size
 
     step = 0
-    simulate!(global_data, threads; domain_min = domain_min, cell_size = cell_size, hash_table_size = hash_table_size, dt = dt, tolerance = tolerance, gravity= gravity, global_damping = global_damping, init = true)
+    simulate!(global_data, threads; domain_min = domain_min, cell_size = cell_size,
+              hash_table_size = hash_table_size, dt = dt, tolerance = tolerance,
+              gravity = gravity, global_damping = global_damping, init = true)
 
     if save_information
         p4p = open("output.p4p", "w")
         p4c = open("output.p4c", "w")
         total_contacts = CUDA.@allowscalar global_data.contact_ptr[1]
-        save_single(grains, global_data.contacts, total_contacts, contact_active, contact_bonded, p4p,
+        save_single(grains, global_data.contacts, total_contacts, contact_active,
+                    contact_bonded, p4p,
                     p4c, 0.0)
     end
 
@@ -343,7 +362,9 @@ function solve(cfg_filename; save_snapshot = false, save_information = true)
         t₁ = time_ns()
         for _ in 1:save_per_steps
             step += 1
-            simulate!(global_data, threads; domain_min = domain_min, cell_size = cell_size, hash_table_size = hash_table_size, dt = dt, tolerance = tolerance, gravity= gravity, global_damping = global_damping)
+            simulate!(global_data, threads; domain_min = domain_min, cell_size = cell_size,
+                      hash_table_size = hash_table_size, dt = dt, tolerance = tolerance,
+                      gravity = gravity, global_damping = global_damping)
         end
         t₂ = time_ns()
 
@@ -356,7 +377,8 @@ function solve(cfg_filename; save_snapshot = false, save_information = true)
 
         if save_information
             total_contacts = CUDA.@allowscalar global_data.contact_ptr[1]
-            save_single(grains, global_data.contacts, total_contacts, contact_active, contact_bonded,
+            save_single(grains, global_data.contacts, total_contacts, contact_active,
+                        contact_bonded,
                         p4p, p4c, step * dt)
         end
     end

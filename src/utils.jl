@@ -63,7 +63,7 @@ function save_single(grains, contacts, total_contacts, contact_active, contact_b
 
     println(p4c, "$t $(length(cache))")
     println(p4c, "P1  P2  CX  CY  CZ  FX  FY  FZ  CONTACT_IS_BONDED")
-    println(p4c, join(cache))
+    print(p4c, join(cache)) # `cache` has a trailing newline
 
     t₂ = time_ns()
     Δt = (t₂ - t₁) * 1e-9
