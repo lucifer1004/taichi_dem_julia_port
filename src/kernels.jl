@@ -70,13 +70,11 @@ function init_bonds!(contacts,
     for idx in index:stride:total
         i, j = cp_list[idx]
         if norm(grains[i].𝐤 - grains[j].𝐤) < grains[i].r₀ + grains[j].r₀
-            offset = CUDA.atomic_add!(pointer(contact_ptr, 1), UInt32(1)) + 1
-
-            # FIXME: material type is hard-coded
             ij = UInt64(i - 1) * n + j
+            offset = CUDA.atomic_add!(pointer(contact_ptr, 1), UInt32(1)) + 1
             set_bit!(contact_active, ij)
             set_bit!(contact_bonded, ij)
-            contacts[offset] = ContactDefault(i, j, 1, 1,
+            contacts[offset] = ContactDefault(i, j, grains[i].mid, grains[j].mid,
                                               zero(Vec3),
                                               zero(Vec3),
                                               zero(Vec3),
@@ -102,9 +100,10 @@ function update_contacts!(contacts,
 
         if !get_bit(contact_bonded, ij)
             valid = norm(grains[i].𝐤 - grains[j].𝐤) < grains[i].r + grains[j].r
-            if get_bit(contact_active, ij) && !valid
+            exist = get_bit(contact_active, ij)
+            if exist && !valid
                 clear_bit!(contact_active, ij)
-            elseif valid
+            elseif !exist && valid
                 offset = CUDA.atomic_add!(pointer(contact_ptr, 1), UInt32(1)) + 1
                 set_bit!(contact_active, ij)
                 contacts[offset] = ContactDefault(i, j, grains[i].mid, grains[j].mid,
@@ -228,8 +227,8 @@ function resolve_collision!(contacts,
 
             contacts[idx] = ContactDefault(i,
                                            j,
-                                           contacts[idx].midᵢ,
-                                           contacts[idx].midⱼ,
+                                           midᵢ,
+                                           midⱼ,
                                            𝐤,
                                            𝐅ᵢ,
                                            𝛕ᵢ,
@@ -297,8 +296,8 @@ function resolve_collision!(contacts,
 
             contacts[idx] = ContactDefault(i,
                                            j,
-                                           contacts[idx].midᵢ,
-                                           contacts[idx].midⱼ,
+                                           midᵢ,
+                                           midⱼ,
                                            𝐤,
                                            𝐅ᵢ,
                                            contacts[idx].𝛕ᵢ,

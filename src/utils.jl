@@ -49,11 +49,16 @@ function save_single(grains, contacts, total_contacts, contact_active, contact_b
     ca = Array(contact_active)
     cb = Array(contact_bonded)
     cache = String[]
+    s = Set()
     for contact in c
         i = contact.i
         j = contact.j
         ij = UInt64(i - 1) * n + j
         if get_bit(ca, ij)
+            if (i, j) in s
+                @error "Duplicate contact pairs!!"
+            end
+            push!(s, (i, j))
             bonded = get_bit(cb, ij)
             𝐤 = contact.𝐤
             𝐅ᵢ = contact.𝐅ᵢ

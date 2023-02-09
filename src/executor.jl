@@ -1,4 +1,4 @@
-struct GlobalData
+mutable struct GlobalData
     grains::CuArray{GrainDefault, 1, CUDA.Mem.DeviceBuffer}
     kid::CuArray{Vec3i, 1, CUDA.Mem.DeviceBuffer}
     hid::CuArray{UInt32, 1, CUDA.Mem.DeviceBuffer}
@@ -148,17 +148,16 @@ function late_clear_state!(g::GlobalData, threads)
                                                                                            g.contact_active,
                                                                                            total_contacts,
                                                                                            g.grains)
-    end
 
-    @debug begin
-        inactive = total_contacts - CUDA.@allowscalar g.contact_ptr[1]
-        if !iszero(inactive)
-            @show Int(inactive)
+        @debug begin
+            inactive = total_contacts - CUDA.@allowscalar g.contact_ptr[1]
+            if !iszero(inactive)
+                @show Int(inactive)
+            end
         end
-    end
 
-    copyto!(g.contacts, g.contacts_temp)
-    fill!(g.contacts_temp, ContactDefaultZero)
+        g.contacts, g.contacts_temp = g.contacts_temp, g.contacts
+    end
 end
 
 function simulate!(global_data::GlobalData, threads; domain_min, cell_size, hash_table_size,
