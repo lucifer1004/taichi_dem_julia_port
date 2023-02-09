@@ -151,17 +151,17 @@ function compare_p4p(p4pfile1::String, p4pfile2::String)
     compare_p4p(records1, records2)
 end
 
-function compare_p4p(records1, records2)
+function compare_p4p(records1, records2; atol=0, rtol=atol>0 ? 0 : √(eps(Float64)))
     @assert length(records1) == length(records2)
     for i in eachindex(records1)
-        @assert records1[i][1] == records2[i][1] "[timestep] i = $i, left = $(records1[i][1]), right = $(records2[i][1])"
+        @assert records1[i][1]==records2[i][1] "[timestep] i = $i, left = $(records1[i][1]), right = $(records2[i][1])"
         @assert length(records1[i][2])==length(records2[i][2]) "[length] i = $i, left = $(length(records1[i][2])) right = $(length(records2[i][2]))"
         for j in 1:length(records1[i][2])
             @assert records1[i][2][j].id==records2[i][2][j].id "[pid] i = $i, j = $j, left = $(records1[i][2][j].id), right = $(records2[i][2][j].id)"
-            @assert records1[i][2][j].V≈records2[i][2][j].V "[V] i = $i, j = $j, left = $(records1[i][2][j].V), right = $(records2[i][2][j].V)"
-            @assert records1[i][2][j].m≈records2[i][2][j].m "[m] i = $i, j = $j, left = $(records1[i][2][j].m), right = $(records2[i][2][j].m)"
-            @assert records1[i][2][j].𝐤≈records2[i][2][j].𝐤 "[k] i = $i, j = $j, left = $(records1[i][2][j].𝐤), right = $(records2[i][2][j].𝐤)"
-            @assert records1[i][2][j].𝐯≈records2[i][2][j].𝐯 "[v] i = $i, j = $j, left = $(records1[i][2][j].𝐯), right = $(records2[i][2][j].𝐯)"
+            @assert isapprox(records1[i][2][j].V, records2[i][2][j].V; atol=atol, rtol=rtol) "[V] i = $i, j = $j, left = $(records1[i][2][j].V), right = $(records2[i][2][j].V)"
+            @assert isapprox(records1[i][2][j].m, records2[i][2][j].m; atol=atol, rtol=rtol) "[m] i = $i, j = $j, left = $(records1[i][2][j].m), right = $(records2[i][2][j].m)"
+            @assert isapprox(records1[i][2][j].𝐤, records2[i][2][j].𝐤; atol=atol, rtol=rtol) "[k] i = $i, j = $j, left = $(records1[i][2][j].𝐤), right = $(records2[i][2][j].𝐤)"
+            @assert isapprox(records1[i][2][j].𝐯, records2[i][2][j].𝐯; atol=atol, rtol=rtol) "[v] i = $i, j = $j, left = $(records1[i][2][j].𝐯), right = $(records2[i][2][j].𝐯)"
         end
     end
 end
@@ -172,15 +172,15 @@ function compare_p4c(p4cfile1::String, p4cfile2::String)
     compare_p4c(records1, records2)
 end
 
-function compare_p4c(records1, records2)
+function compare_p4c(records1, records2; atol=0, rtol=atol>0 ? 0 : √(eps(Float64)))
     @assert length(records1) == length(records2)
     for i in eachindex(records1)
-        @assert records1[i][1] == records2[i][1] "[timestep] i = $i, left = $(records1[i][1]), right = $(records2[i][1])"
+        @assert records1[i][1]==records2[i][1] "[timestep] i = $i, left = $(records1[i][1]), right = $(records2[i][1])"
         @assert length(records1[i][2])==length(records2[i][2]) "[length] i = $i, left = $(length(records1[i][2])) right = $(length(records2[i][2]))"
         for j in 1:length(records1[i][2])
             @assert records1[i][2][j][1]==records2[i][2][j][1] "[pair] i = $i, j = $j, left = $(records1[i][2][j][1]), right = $(records2[i][2][j][1])"
-            @assert records1[i][2][j][2].𝐤≈records2[i][2][j][2].𝐤 "[position] i = $i, j = $j, left = $(records1[i][2][j][2].𝐤), right = $(records2[i][2][j][2].𝐤)"
-            @assert records1[i][2][j][2].𝐅ᵢ≈records2[i][2][j][2].𝐅ᵢ "[force] i = $i, j = $j, left = $(records1[i][2][j][2].𝐅ᵢ), right = $(records2[i][2][j][2].𝐅ᵢ)"
+            @assert isapprox(records1[i][2][j][2].𝐤, records2[i][2][j][2].𝐤; rtol=rtol, atol=atol) "[position] i = $i, j = $j, left = $(records1[i][2][j][2].𝐤), right = $(records2[i][2][j][2].𝐤)"
+            @assert isapprox(records1[i][2][j][2].𝐅ᵢ, records2[i][2][j][2].𝐅ᵢ; rtol=rtol, atol=atol) "[force] i = $i, j = $j, left = $(records1[i][2][j][2].𝐅ᵢ), right = $(records2[i][2][j][2].𝐅ᵢ)"
             @assert records1[i][2][j][2].bonded==records2[i][2][j][2].bonded "[bonded] i = $i, j = $j, left = $(records1[i][2][j][2].bonded), right = $(records2[i][2][j][2].bonded)"
         end
     end

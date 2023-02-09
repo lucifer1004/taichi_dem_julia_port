@@ -224,19 +224,24 @@ function resolve_collision!(contacts,
                 atomic_add_vec3!(forces, 3 * j - 2, 𝐑⁻¹ * -𝐅ⱼ)
                 atomic_add_vec3!(moments, 3 * i - 2, 𝐑⁻¹ * -𝛕ᵢ)
                 atomic_add_vec3!(moments, 3 * j - 2, 𝐑⁻¹ * -𝛕ⱼ)
-            end
 
-            contacts[idx] = ContactDefault(i,
-                                           j,
-                                           midᵢ,
-                                           midⱼ,
-                                           𝐤,
-                                           𝐅ᵢ,
-                                           𝛕ᵢ,
-                                           𝛕ⱼ,
-                                           zero(Vec3))
+                contacts[idx] = ContactDefault(i,
+                                               j,
+                                               midᵢ,
+                                               midⱼ,
+                                               𝐤,
+                                               𝐅ᵢ,
+                                               𝛕ᵢ,
+                                               𝛕ⱼ,
+                                               zero(Vec3))
+            end
         else # Non-bonded, use Hertz-Mindlin
-            gap = Lᵢ - grains[i].r - grains[j].r # gap must be negative to ensure an intact contact
+            gap = Lᵢ - grains[i].r - grains[j].r 
+            # gap must be negative to ensure an intact contact
+            if gap > 0
+                @cuprintln("[Resolve Collision] Fatal: gap > 0")
+            end
+            
             Δn = abs(gap)
             𝐤 = grains[i].𝐤 + normalize(grains[j].𝐤 - grains[i].𝐤) * (grains[i].r - Δn)
             𝐤ᵢ = 𝐤 - grains[i].𝐤
@@ -260,16 +265,15 @@ function resolve_collision!(contacts,
             Sₙ = 2.0 * Y✶ * √(R✶ * Δn)
             Sₜ = 8.0 * G✶ * √(R✶ * Δn)
             kₙ = 4.0 / 3.0 * Y✶ * √(R✶ * Δn)
-
             γₙ = -2.0 * β * √(5.0 / 6.0 * Sₙ * m✶)
             if γₙ < 0
-                @cuprintln("Fatal: γₙ < 0")
+                @cuprintln("[Resolve Collision] Fatal: γₙ < 0")
             end
 
             kₜ = 8.0 * G✶ * √(R✶ * Δn)
             γₜ = -2.0 * β * √(5.0 / 6.0 * Sₜ * m✶)
             if γₜ < 0
-                @cuprintln("Fatal: γₜ < 0")
+                @cuprintln("[Resolve Collision] Fatal: γₜ < 0")
             end
 
             # Shear displacement increments (remove the normal direction)
