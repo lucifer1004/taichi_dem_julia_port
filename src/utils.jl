@@ -101,6 +101,27 @@ function snapshot(grains, step)
     save("snapshot_$step.png", fig)
 end
 
+function read_p4p(p4pfile)
+    records = []
+    lines = readlines(p4pfile)
+    i = 1
+    while i <= length(lines)
+        @assert startswith(lines[i], "TIMESTEP")
+        timestep, n = parse.(Float64, split(lines[i + 1]))
+        n = Int(n)
+        grains = Vector{IOGrainDefault}(undef, n)
+        for j in 1:n
+            line = lines[i + 2 + j]
+            pid, _gid, V, m, px, py, pz, vx, vy, vz = parse.(Float64, split(line)[1:10])
+            grains[Int(pid)] = IOGrainDefault(Int(pid), V, m, SVector(px, py, pz),
+                                              SVector(vx, vy, vz))
+        end
+        push!(records, (timestep, grains))
+        i += 3 + n
+    end
+    return records
+end
+
 function read_p4c(p4cfile)
     records = []
     lines = readlines(p4cfile)
@@ -113,7 +134,8 @@ function read_p4c(p4cfile)
         for j in 1:n
             line = lines[i + 2 + j]
             p1, p2, cx, cy, cz, fx, fy, fz, bonded = parse.(Float64, split(line)[1:9])
-            contact = IOContactDefault(Int(p1), Int(p2), SVector(cx, cy, cz), SVector(fx, fy, fz), Bool(bonded))
+            contact = IOContactDefault(Int(p1), Int(p2), SVector(cx, cy, cz),
+                                       SVector(fx, fy, fz), Bool(bonded))
             current[(Int(p1), Int(p2))] = contact
         end
         sorted_results = sort(collect(current), by = x -> x[1])
@@ -121,6 +143,27 @@ function read_p4c(p4cfile)
         i += 3 + n
     end
     return records
+end
+
+function compare_p4p(p4pfile1::String, p4pfile2::String)
+    records1 = read_p4p(p4pfile1)
+    records2 = read_p4p(p4pfile2)
+    compare_p4p(records1, records2)
+end
+
+function compare_p4p(records1, records2)
+    @assert length(records1) == length(records2)
+    for i in eachindex(records1)
+        @assert records1[i][1] == records2[i][1] "[timestep] i = $i, left = $(records1[i][1]), right = $(records2[i][1])"
+        @assert length(records1[i][2])==length(records2[i][2]) "[length] i = $i, left = $(length(records1[i][2])) right = $(length(records2[i][2]))"
+        for j in 1:length(records1[i][2])
+            @assert records1[i][2][j].id==records2[i][2][j].id "[pid] i = $i, j = $j, left = $(records1[i][2][j].id), right = $(records2[i][2][j].id)"
+            @assert records1[i][2][j].V≈records2[i][2][j].V "[V] i = $i, j = $j, left = $(records1[i][2][j].V), right = $(records2[i][2][j].V)"
+            @assert records1[i][2][j].m≈records2[i][2][j].m "[m] i = $i, j = $j, left = $(records1[i][2][j].m), right = $(records2[i][2][j].m)"
+            @assert records1[i][2][j].𝐤≈records2[i][2][j].𝐤 "[k] i = $i, j = $j, left = $(records1[i][2][j].𝐤), right = $(records2[i][2][j].𝐤)"
+            @assert records1[i][2][j].𝐯≈records2[i][2][j].𝐯 "[v] i = $i, j = $j, left = $(records1[i][2][j].𝐯), right = $(records2[i][2][j].𝐯)"
+        end
+    end
 end
 
 function compare_p4c(p4cfile1::String, p4cfile2::String)
@@ -132,13 +175,13 @@ end
 function compare_p4c(records1, records2)
     @assert length(records1) == length(records2)
     for i in eachindex(records1)
-        @assert records1[i][1] == records2[i][1]
-        @assert length(records1[i][2]) == length(records2[i][2]) "[length] i = $i, left = $(length(records1[i][2])) right = $(length(records2[i][2]))"
+        @assert records1[i][1] == records2[i][1] "[timestep] i = $i, left = $(records1[i][1]), right = $(records2[i][1])"
+        @assert length(records1[i][2])==length(records2[i][2]) "[length] i = $i, left = $(length(records1[i][2])) right = $(length(records2[i][2]))"
         for j in 1:length(records1[i][2])
-            @assert records1[i][2][j][1] == records2[i][2][j][1] "[pair] i = $i, j = $j, left = $(records1[i][2][j][1]), right = $(records2[i][2][j][1])"
-            @assert records1[i][2][j][2].𝐤 ≈ records2[i][2][j][2].𝐤 "[position] i = $i, j = $j, left = $(records1[i][2][j][2].𝐤), right = $(records2[i][2][j][2].𝐤)"
-            @assert records1[i][2][j][2].𝐅ᵢ ≈ records2[i][2][j][2].𝐅ᵢ "[force] i = $i, j = $j, left = $(records1[i][2][j][2].𝐅ᵢ), right = $(records2[i][2][j][2].𝐅ᵢ)"
-            @assert records1[i][2][j][2].bonded == records2[i][2][j][2].bonded "[bonded] i = $i, j = $j, left = $(records1[i][2][j][2].bonded), right = $(records2[i][2][j][2].bonded)"
+            @assert records1[i][2][j][1]==records2[i][2][j][1] "[pair] i = $i, j = $j, left = $(records1[i][2][j][1]), right = $(records2[i][2][j][1])"
+            @assert records1[i][2][j][2].𝐤≈records2[i][2][j][2].𝐤 "[position] i = $i, j = $j, left = $(records1[i][2][j][2].𝐤), right = $(records2[i][2][j][2].𝐤)"
+            @assert records1[i][2][j][2].𝐅ᵢ≈records2[i][2][j][2].𝐅ᵢ "[force] i = $i, j = $j, left = $(records1[i][2][j][2].𝐅ᵢ), right = $(records2[i][2][j][2].𝐅ᵢ)"
+            @assert records1[i][2][j][2].bonded==records2[i][2][j][2].bonded "[bonded] i = $i, j = $j, left = $(records1[i][2][j][2].bonded), right = $(records2[i][2][j][2].bonded)"
         end
     end
 end

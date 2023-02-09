@@ -98,6 +98,7 @@ function update_contacts!(contacts,
         i, j = cp_list[idx]
         ij = UInt64(i - 1) * n + j
 
+        # Bonded contact must exist, and will be checked later
         if !get_bit(contact_bonded, ij)
             valid = norm(grains[i].𝐤 - grains[j].𝐤) < grains[i].r + grains[j].r
             exist = get_bit(contact_active, ij)

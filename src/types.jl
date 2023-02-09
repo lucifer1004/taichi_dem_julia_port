@@ -47,6 +47,16 @@ end
 
 const GrainDefault = Grain{Int32, Float64}
 
+struct IOGrain{I <: Integer, F <: AbstractFloat}
+    id::I
+    V::F
+    m::F
+    𝐤::SVector{3, F}
+    𝐯::SVector{3, F}
+end
+
+const IOGrainDefault = IOGrain{Int32, Float64}
+
 struct Wall{I <: Integer, F <: AbstractFloat}
     𝐧::SVector{3, F}
     d::F
