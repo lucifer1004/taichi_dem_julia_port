@@ -55,10 +55,13 @@ function save_single(grains, contacts, total_contacts, contact_active, contact_b
         j = contact.j
         ij = UInt64(i - 1) * n + j
         if get_bit(ca, ij)
-            if (i, j) in s
-                @error "Duplicate contact pairs!!"
+            @debug begin
+                if (i, j) in s
+                    error("Duplicate contact pairs!")
+                end
+                push!(s, (i, j))
             end
-            push!(s, (i, j))
+
             bonded = get_bit(cb, ij)
             𝐤 = contact.𝐤
             𝐅ᵢ = contact.𝐅ᵢ
@@ -96,4 +99,46 @@ function snapshot(grains, step)
                                  perspectiveness = 0.5),
                          figure = (; resolution = (1200, 800)))
     save("snapshot_$step.png", fig)
+end
+
+function read_p4c(p4cfile)
+    records = []
+    lines = readlines(p4cfile)
+    i = 1
+    while i <= length(lines)
+        @assert startswith(lines[i], "TIMESTEP")
+        timestep, n = parse.(Float64, split(lines[i + 1]))
+        n = Int(n)
+        current = Dict{Tuple{Int, Int}, IOContactDefault}()
+        for j in 1:n
+            line = lines[i + 2 + j]
+            p1, p2, cx, cy, cz, fx, fy, fz, bonded = parse.(Float64, split(line)[1:9])
+            contact = IOContactDefault(Int(p1), Int(p2), SVector(cx, cy, cz), SVector(fx, fy, fz), Bool(bonded))
+            current[(Int(p1), Int(p2))] = contact
+        end
+        sorted_results = sort(collect(current), by = x -> x[1])
+        push!(records, (timestep, sorted_results))
+        i += 3 + n
+    end
+    return records
+end
+
+function compare_p4c(p4cfile1::String, p4cfile2::String)
+    records1 = read_p4c(p4cfile1)
+    records2 = read_p4c(p4cfile2)
+    compare_p4c(records1, records2)
+end
+
+function compare_p4c(records1, records2)
+    @assert length(records1) == length(records2)
+    for i in eachindex(records1)
+        @assert records1[i][1] == records2[i][1]
+        @assert length(records1[i][2]) == length(records2[i][2]) "[length] i = $i, left = $(length(records1[i][2])) right = $(length(records2[i][2]))"
+        for j in 1:length(records1[i][2])
+            @assert records1[i][2][j][1] == records2[i][2][j][1] "[pair] i = $i, j = $j, left = $(records1[i][2][j][1]), right = $(records2[i][2][j][1])"
+            @assert records1[i][2][j][2].𝐤 ≈ records2[i][2][j][2].𝐤 "[position] i = $i, j = $j, left = $(records1[i][2][j][2].𝐤), right = $(records2[i][2][j][2].𝐤)"
+            @assert records1[i][2][j][2].𝐅ᵢ ≈ records2[i][2][j][2].𝐅ᵢ "[force] i = $i, j = $j, left = $(records1[i][2][j][2].𝐅ᵢ), right = $(records2[i][2][j][2].𝐅ᵢ)"
+            @assert records1[i][2][j][2].bonded == records2[i][2][j][2].bonded "[bonded] i = $i, j = $j, left = $(records1[i][2][j][2].bonded), right = $(records2[i][2][j][2].bonded)"
+        end
+    end
 end

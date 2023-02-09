@@ -160,11 +160,18 @@ function late_clear_state!(g::GlobalData, threads)
     end
 end
 
+function initialize!(global_data::GlobalData, threads; domain_min, cell_size,
+                     hash_table_size,
+                     dt, tolerance)
+    contact!(global_data, threads; domain_min = domain_min, cell_size = cell_size,
+             hash_table_size = hash_table_size, dt = dt, tolerance = tolerance, init = true)
+end
+
 function simulate!(global_data::GlobalData, threads; domain_min, cell_size, hash_table_size,
-                   dt, tolerance, gravity, global_damping, init = false)
+                   dt, tolerance, gravity, global_damping)
     clear_state!(global_data)
     contact!(global_data, threads; domain_min = domain_min, cell_size = cell_size,
-             hash_table_size = hash_table_size, dt = dt, tolerance = tolerance, init = init)
+             hash_table_size = hash_table_size, dt = dt, tolerance = tolerance)
     resolve_wall!(global_data, threads; dt = dt, tolerance = tolerance)
     apply_body_force!(global_data, threads; gravity = gravity,
                       global_damping = global_damping)
@@ -244,8 +251,11 @@ function solve(cfg_filename; save_snapshot = false, save_information = true)
                      𝐈)
     end
 
-    # Follow baseline solution's convention
+    # FIXME: To match baseline solution's wrong convention
     material_density = grains_cpu[end].m / grains_cpu[end].V
+    map!(grains_cpu, grains_cpu) do g
+        @set g.m = g.V * material_density
+    end
 
     # Calculate neighbor search radius
     rₘₐₓ = maximum(g -> g.r, grains_cpu) *
@@ -316,7 +326,7 @@ function solve(cfg_filename; save_snapshot = false, save_information = true)
     # FIXME: walls are hard-coded
     walls = cu([WallDefault(wall_normal, wall_distance, 2)])
     nwall = length(walls)
-    wall_contacts = CuMatrix{ContactDefault}(undef, nwall, n)
+    wall_contacts = CUDA.fill(ContactDefaultZero, nwall, n)
 
     threads = 256
     global_data = GlobalData(grains,
@@ -345,9 +355,8 @@ function solve(cfg_filename; save_snapshot = false, save_information = true)
     @info "Setting:" hash_table_size cell_size
 
     step = 0
-    simulate!(global_data, threads; domain_min = domain_min, cell_size = cell_size,
-              hash_table_size = hash_table_size, dt = dt, tolerance = tolerance,
-              gravity = gravity, global_damping = global_damping, init = true)
+    initialize!(global_data, threads; domain_min = domain_min, cell_size = cell_size,
+                hash_table_size = hash_table_size, dt = dt, tolerance = tolerance)
 
     if save_information
         p4p = open("output.p4p", "w")

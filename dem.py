@@ -144,7 +144,7 @@ import time
 
 # Init taichi context
 # Device memory size is recommended to be 75% of your GPU VRAM
-ti.init(arch=ti.gpu, device_memory_GB=6, debug=False)
+ti.init(arch=ti.gpu, device_memory_GB=6, debug=False, default_fp=ti.f64)
 
 #=====================================
 # Type Definition

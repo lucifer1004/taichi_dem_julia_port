@@ -70,3 +70,13 @@ end
 const ContactDefault = Contact{Int32, Float64}
 const ContactDefaultZero = Contact{Int32, Float64}(0, 0, 0, 0, zero(Vec3), zero(Vec3),
                                                    zero(Vec3), zero(Vec3), zero(Vec3))
+
+struct IOContact{I <: Integer, F <: AbstractFloat}
+    i::I
+    j::I
+    𝐤::SVector{3, F}
+    𝐅ᵢ::SVector{3, F}
+    bonded::Bool
+end
+
+const IOContactDefault = IOContact{Int32, Float64}
