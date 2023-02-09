@@ -1,4 +1,4 @@
-mutable struct GlobalData
+struct GlobalData
     grains::CuArray{GrainDefault, 1, CUDA.Mem.DeviceBuffer}
     kid::CuArray{Vec3i, 1, CUDA.Mem.DeviceBuffer}
     hid::CuArray{UInt32, 1, CUDA.Mem.DeviceBuffer}
@@ -142,13 +142,13 @@ function late_clear_state!(g::GlobalData, threads)
 
     if total_contacts > 0
         fill!(g.contact_ptr, 0)
-        CUDA.@sync @cuda threads=threads blocks=cld(total_contacts, threads) remove_inactive_contact!(g.contacts,
-                                                                                                  g.contacts_temp,
-                                                                                                  g.contact_ptr,
-                                                                                                  g.contact_active,
-                                                                                                  total_contacts,
-                                                                                                  g.grains)
-    end                                                                                        
+        @cuda threads=threads blocks=cld(total_contacts, threads) remove_inactive_contact!(g.contacts,
+                                                                                           g.contacts_temp,
+                                                                                           g.contact_ptr,
+                                                                                           g.contact_active,
+                                                                                           total_contacts,
+                                                                                           g.grains)
+    end
 
     @debug begin
         inactive = total_contacts - CUDA.@allowscalar g.contact_ptr[1]
@@ -157,7 +157,8 @@ function late_clear_state!(g::GlobalData, threads)
         end
     end
 
-    g.contacts, g.contacts_temp = g.contacts_temp, g.contacts
+    copyto!(g.contacts, g.contacts_temp)
+    fill!(g.contacts_temp, ContactDefaultZero)
 end
 
 function simulate!(global_data::GlobalData, threads; domain_min, cell_size, hash_table_size,
@@ -275,8 +276,8 @@ function solve(cfg_filename; save_snapshot = false, save_information = true)
     cp_range_current = similar(cp_range)
 
     contact_ptr = CUDA.zeros(UInt32, 1)
-    contacts = CuVector{ContactDefault}(undef, n * max_coordinate_number)
-    contacts_temp = CuVector{ContactDefault}(undef, n * max_coordinate_number)
+    contacts = CUDA.fill(ContactDefaultZero, n * max_coordinate_number)
+    contacts_temp = CUDA.fill(ContactDefaultZero, n * max_coordinate_number)
     contact_active = CUDA.zeros(UInt32, (nextpow(2, n)^2) >> 5)
     contact_bonded = CUDA.zeros(UInt32, (nextpow(2, n)^2) >> 5)
 

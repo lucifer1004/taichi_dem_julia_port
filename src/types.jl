@@ -55,7 +55,7 @@ end
 
 WallDefault = Wall{Int32, Float64}
 
-Base.@kwdef struct Contact{I <: Integer, F <: AbstractFloat}
+struct Contact{I <: Integer, F <: AbstractFloat}
     i::I
     j::I
     midᵢ::I
@@ -68,3 +68,5 @@ Base.@kwdef struct Contact{I <: Integer, F <: AbstractFloat}
 end
 
 const ContactDefault = Contact{Int32, Float64}
+const ContactDefaultZero = Contact{Int32, Float64}(0, 0, 0, 0, zero(Vec3), zero(Vec3),
+                                                   zero(Vec3), zero(Vec3), zero(Vec3))

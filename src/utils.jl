@@ -27,7 +27,8 @@ end
     CUDA.atomic_and!(pointer(bs, idx >> 5 + 1), ~(UInt32(1) << (idx & 31)))
 end
 
-function save_single(grains, contacts, total_contacts, contact_active, contact_bonded, p4p, p4c, t)
+function save_single(grains, contacts, total_contacts, contact_active, contact_bonded, p4p,
+                     p4c, t)
     @info "Start saving..."
     t₁ = time_ns()
     n = length(grains)
@@ -51,13 +52,13 @@ function save_single(grains, contacts, total_contacts, contact_active, contact_b
     for contact in c
         i = contact.i
         j = contact.j
-        ij = UInt64(i - 1) * n +  j
+        ij = UInt64(i - 1) * n + j
         if get_bit(ca, ij)
             bonded = get_bit(cb, ij)
             𝐤 = contact.𝐤
             𝐅ᵢ = contact.𝐅ᵢ
             push!(cache,
-                    "$i $j $(𝐤[1]) $(𝐤[2]) $(𝐤[3]) $(𝐅ᵢ[1]) $(𝐅ᵢ[2]) $(𝐅ᵢ[3]) $(Int(bonded))\n")
+                  "$i $j $(𝐤[1]) $(𝐤[2]) $(𝐤[3]) $(𝐅ᵢ[1]) $(𝐅ᵢ[2]) $(𝐅ᵢ[3]) $(Int(bonded))\n")
         end
     end
 

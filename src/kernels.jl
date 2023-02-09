@@ -374,7 +374,7 @@ function resolve_wall!(wall_contacts,
                 if γₙ < 0
                     @cuprintln("[Resolve Wall] Fatal: γₙ < 0")
                 end
-    
+
                 kₜ = 8.0 * G✶ * √(R✶ * Δn)
                 γₜ = -2.0 * β * √(5.0 / 6.0 * Sₜ * m✶)
                 if γₜ < 0
