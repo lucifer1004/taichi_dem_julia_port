@@ -179,7 +179,7 @@ function simulate!(global_data::GlobalData, threads; domain_min, cell_size, hash
     late_clear_state!(global_data, threads)
 end
 
-function solve(cfg_filename; save_snapshot = false, save_information = true)
+function solve(cfg_filename; no_bond = false, save_snapshot = false, save_information = true)
     # Release memory in case there are leftovers from previous runs
     GC.gc(true)
     CUDA.reclaim()
@@ -349,8 +349,12 @@ function solve(cfg_filename; save_snapshot = false, save_information = true)
     @info "Setting:" hash_table_size cell_size
 
     step = 0
-    initialize!(global_data, threads; domain_min = domain_min, cell_size = cell_size,
+
+    # Skip bond initialization if bond effect is not considered
+    if !no_bond
+        initialize!(global_data, threads; domain_min = domain_min, cell_size = cell_size,
                 hash_table_size = hash_table_size, dt = dt, tolerance = tolerance)
+    end
 
     if save_information
         p4p = open("output.p4p", "w")
