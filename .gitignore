@@ -6,3 +6,4 @@ output*
 snapshot*
 /*.so*
 *.nsys-rep
+local_test

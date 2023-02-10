@@ -830,9 +830,11 @@ class Surface: # Size: 72B
 # Particle in DEM
 # Denver Pilphis: keep spherical shape at this stage, added particle attributes to make the particle kinematically complete
 @ti.dataclass
-class Grain: # Size: 296B
+class Grain: # Size: 296B + 8B (mass) + 4B (group)
     ID: Integer # Record Grain ID
+    groupID: Integer # Record group ID
     materialType: Integer # Type number of material
+    mass: Real # Mass, double
     radius: Real  # Radius, double
     contactRadius: Real
     # Translational attributes, all in GLOBAL coordinates
@@ -970,20 +972,17 @@ class DEMSolver:
                   "ID  GROUP  VOLUME  MASS  PX  PY  PZ  VX  VY  VZ\n"
                   ]
         np_ID = self.gf.ID.to_numpy()
-        np_materialType = self.gf.materialType.to_numpy()
+        np_groupID = self.gf.groupID.to_numpy()
         np_radius = self.gf.radius.to_numpy()
-        #np_mass = self.gf.mass.to_numpy()
-        #np_density = self.gf.density.to_numpy()
+        np_mass = self.gf.mass.to_numpy()
         np_position = self.gf.position.to_numpy()
         np_velocity = self.gf.velocity.to_numpy()
-
-        np_density = self.mf.density.to_numpy()
         for i in range(n):
             # GROUP omitted
-            group : int = 0
+            group : int = np_groupID[i]
             ID : int = np_ID[i]
             volume : float = 4.0 / 3.0 * pi * np_radius[i] ** 3;
-            mass : float = volume * np_density[np_materialType[i]]
+            mass : float = np_mass[i]
             px : float = np_position[i][0]
             py : float = np_position[i][1]
             pz : float = np_position[i][2]
@@ -1060,6 +1059,7 @@ class DEMSolver:
         # Processing particles
         max_radius = 0.0
         np_ID = np.zeros(n, int)
+        np_groupID = np.zeros(n, int)
         np_density = np.zeros(n, float)
         np_mass = np.zeros(n, float)
         np_radius = np.zeros(n, float)
@@ -1075,7 +1075,7 @@ class DEMSolver:
             tokens:list[str] = line.split(' ')
             id : Integer = int(tokens[0])
             i = id - 1
-            # GROUP omitted
+            gid = int(tokens[1])
             volume : Real = float(tokens[2])
             mass : Real = float(tokens[3])
             px : Real = float(tokens[4])
@@ -1090,6 +1090,7 @@ class DEMSolver:
             radius : Real = tm.pow(volume * 3.0 / 4.0 / tm.pi, 1.0 / 3.0)
             inertia : Real = 2.0 / 5.0 * mass * radius * radius
             np_ID[i] = id
+            np_groupID[i] = gid
             # self.gf[i].density = density
             np_density[i] = density
             # self.gf[i].mass = mass
@@ -1105,8 +1106,10 @@ class DEMSolver:
             np_inertia[i] = inertia * ti.Matrix.diag(3, 1.0)
         fp.close()
         self.gf.ID.from_numpy(np_ID)
+        self.gf.groupID.from_numpy(np_groupID)
         self.gf.materialType.fill(0); # Denver Pilphis: hard coding
         self.gf.radius.from_numpy(np_radius)
+        self.gf.mass.from_numpy(np_mass)
         self.gf.contactRadius.from_numpy(np_radius * set_particle_contact_radius_multiplier)
         self.gf.position.from_numpy(np_position)
         self.gf.velocity.from_numpy(np_velocity)
@@ -1279,11 +1282,9 @@ class DEMSolver:
 
         # Gravity
         gf = ti.static(self.gf)
-        mf = ti.static(self.mf)
         g = self.config.gravity
         for i in gf:
-            type_i = gf[i].materialType;
-            gf[i].force += mf[type_i].density * 4.0 / 3.0 * tm.pi * gf[i].radius ** 3 * g;
+            gf[i].force += gf[i].mass * g;
             gf[i].moment += Vector3(0.0, 0.0, 0.0)
 
         # GLOBAL damping
@@ -1317,8 +1318,7 @@ class DEMSolver:
             # Translational
             # Velocity Verlet integrator is adopted
             # Reference: https://www.algorithm-archive.org/contents/verlet_integration/verlet_integration.html
-            type_i = gf[i].materialType
-            gf[i].acceleration = gf[i].force / (mf[type_i].density * 4.0 / 3.0 * tm.pi * gf[i].radius ** 3)
+            gf[i].acceleration = gf[i].force / gf[i].mass
             # print(f"{gf[i].ID}.force = {gf[i].force[0]}")
             gf[i].position += gf[i].velocity * dt + 0.5 * gf[i].acceleration * dt ** 2
             gf[i].velocity += gf[i].acceleration * dt
@@ -1552,7 +1552,7 @@ class DEMSolver:
                 Y_star = 1.0 / ((1.0 - mf[type_i].poissonRatio ** 2) / mf[type_i].elasticModulus + (1.0 - mf[type_j].poissonRatio ** 2) / mf[type_j].elasticModulus)
                 G_star = 1.0 / (2.0 * (2.0 - mf[type_i].poissonRatio) * (1.0 + mf[type_i].poissonRatio) / mf[type_i].elasticModulus + 2.0 * (2.0 - mf[type_j].poissonRatio) * (1.0 + mf[type_j].poissonRatio) / mf[type_j].elasticModulus)
                 R_star = 1.0 / (1.0 / gf[i].radius + 1.0 / gf[j].radius)
-                m_star = 1.0 / (1.0 / (mf[type_i].density * 4.0 / 3.0 * tm.pi * gf[i].radius ** 3) + 1.0 / (mf[type_j].density * 4.0 / 3.0 * tm.pi * gf[j].radius ** 3))
+                m_star = 1.0 / (1.0 / gf[i].mass + 1.0 / gf[j].mass)
                 beta  = tm.log(surf[type_i, type_j].coefficientRestitution) / tm.sqrt(tm.log(surf[type_i, type_j].coefficientRestitution) ** 2 + tm.pi ** 2)
                 S_n  = 2.0 * Y_star * tm.sqrt(R_star * delta_n)
                 S_t  = 8.0 * G_star * tm.sqrt(R_star * delta_n)
@@ -1660,7 +1660,7 @@ class DEMSolver:
         Y_star = 1.0 / ((1.0 - mf[type_i].poissonRatio ** 2) / mf[type_i].elasticModulus + (1.0 - mf[type_j].poissonRatio ** 2) / mf[type_j].elasticModulus)
         G_star = 1.0 / (2.0 * (2.0 - mf[type_i].poissonRatio) * (1.0 + mf[type_i].poissonRatio) / mf[type_i].elasticModulus + 2.0 * (2.0 - mf[type_j].poissonRatio) * (1.0 + mf[type_j].poissonRatio) / mf[type_j].elasticModulus)
         R_star = gf[i].radius
-        m_star = mf[type_i].density * 4.0 / 3.0 * tm.pi * gf[i].radius ** 3;
+        m_star = gf[i].mass
         beta = tm.log(surf[type_i, type_j].coefficientRestitution) / tm.sqrt(tm.log(surf[type_i, type_j].coefficientRestitution) ** 2 + tm.pi ** 2)
         S_n = 2.0 * Y_star * tm.sqrt(R_star * delta_n)
         S_t  = 8.0 * G_star * tm.sqrt(R_star * delta_n)

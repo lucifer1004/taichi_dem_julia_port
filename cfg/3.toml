@@ -1,6 +1,6 @@
 domain_min = [-10.0, -10.0, -10.0]
 domain_max = [0.11, 10.0, 10.0]
-init_particles = "Resources/cube_18112_particles_impact.p4p"
+init_particles = "../Resources/cube_18112_particles_impact.p4p"
 wall_normal = [1.0, 0.0, 0.0]
 wall_distance = 0.1
 max_coordinate_number = 16

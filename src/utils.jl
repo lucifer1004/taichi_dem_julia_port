@@ -79,6 +79,22 @@ function save_single(grains, contacts, total_contacts, contact_active, contact_b
     @info "Checkpoint saved! $(length(cache)) active contacts" Δt
 end
 
+function _snapshot(x, y, z, r)
+    fig, _ = meshscatter(x,
+    y,
+    z;
+    markersize = r,
+    color = z,
+    axis = (;
+            type = Axis3,
+            aspect = :data,
+            azimuth = 7.3,
+            elevation = 0.189,
+            perspectiveness = 0.5),
+    figure = (; resolution = (1200, 800)))
+    fig
+end
+
 function snapshot(grains, step)
     grains = Array(grains)
     𝐤 = [g.𝐤 for g in grains]
@@ -86,23 +102,29 @@ function snapshot(grains, step)
     y = [k[2] for k in 𝐤]
     z = [k[3] for k in 𝐤]
     r = [g.r for g in grains]
-    fig, _ = meshscatter(x,
-                         y,
-                         z;
-                         markersize = r,
-                         color = z,
-                         axis = (;
-                                 type = Axis3,
-                                 aspect = :data,
-                                 azimuth = 7.3,
-                                 elevation = 0.189,
-                                 perspectiveness = 0.5),
-                         figure = (; resolution = (1200, 800)))
+    fig = _snapshot(x, y, z, r)
     save("snapshot_$step.png", fig)
 end
 
+function plot_p4p(p4pfile::String)
+    records = read_p4p(p4pfile)
+    plot_p4p(records)
+end
+
+function plot_p4p(records::AbstractVector{Tuple{Float64, Vector{IOGrainDefault}}})
+    foreach(enumerate(records)) do (i, (_timestep, grains))
+        𝐤 = [g.𝐤 for g in grains]
+        x = [k[1] for k in 𝐤]
+        y = [k[2] for k in 𝐤]
+        z = [k[3] for k in 𝐤]
+        r = [∛(g.V / (4 / 3 * π)) for g in grains]
+        fig = _snapshot(x, y, z, r)
+        save("snapshot_$i.png", fig)
+    end
+end
+
 function read_p4p(p4pfile)
-    records = []
+    records = Tuple{Float64, Vector{IOGrainDefault}}[]
     lines = readlines(p4pfile)
     i = 1
     while i <= length(lines)

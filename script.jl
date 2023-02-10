@@ -1,6 +1,9 @@
 import Pkg;
 Pkg.activate(".");
 
+# To run GLMakie on server
+ENV["DISPLAY"] = ":0"
+
 tick = time_ns()
 @info "Loading packages..."
 using DEMPort

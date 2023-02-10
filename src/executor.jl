@@ -222,8 +222,7 @@ function solve(cfg_filename; save_snapshot = false, save_information = true)
     gravity,
     global_damping) = cfg
 
-    lines = split(read(init_particles, String), "\n")
-
+    lines = split(read(joinpath(dirname(cfg_filename), init_particles), String), "\n")
     n = parse(Int, split(lines[2])[2]) # $timestamp $particles
     grains_cpu = map(lines[4:(n + 3)]) do line
         id, gid, V, m, k₁, k₂, k₃, v₁, v₂, v₃ = parse.(Float64, split(line))
@@ -250,12 +249,7 @@ function solve(cfg_filename; save_snapshot = false, save_information = true)
                      zero(Vec3),
                      𝐈)
     end
-
-    # FIXME: To match baseline solution's wrong convention
     material_density = grains_cpu[end].m / grains_cpu[end].V
-    map!(grains_cpu, grains_cpu) do g
-        @set g.m = g.V * material_density
-    end
 
     # Calculate neighbor search radius
     rₘₐₓ = maximum(g -> g.r, grains_cpu) *
@@ -393,6 +387,9 @@ function solve(cfg_filename; save_snapshot = false, save_information = true)
                         contact_bonded,
                         p4p, p4c, step * dt)
         end
+
+        # total_contacts = CUDA.@allowscalar global_data.contact_ptr[1]
+        # @info "Total contacts: $total_contacts"
     end
 
     if save_information

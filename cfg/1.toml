@@ -1,6 +1,6 @@
 domain_min = [-5.0, -5.0, -1.0]
 domain_max = [5.0, 5.0, 1.0]
-init_particles = "Resources/carom.p4p"
+init_particles = "../Resources/carom.p4p"
 wall_normal = [0.0, 0.0, -1.0]
 wall_distance = 0.03125
 max_coordinate_number = 16
