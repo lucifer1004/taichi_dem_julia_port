@@ -103,6 +103,7 @@ function update_contacts!(contacts,
             valid = norm(grains[i].𝐤 - grains[j].𝐤) < grains[i].r + grains[j].r
             exist = get_bit(contact_active, ij)
             if exist && !valid
+                CUDA.atomic_add!(pointer(contact_ptr, 2), UInt32(1))
                 clear_bit!(contact_active, ij)
             elseif !exist && valid
                 offset = CUDA.atomic_add!(pointer(contact_ptr, 1), UInt32(1)) + 1
@@ -119,7 +120,7 @@ function update_contacts!(contacts,
 end
 
 function resolve_collision!(contacts,
-                            total_contacts,
+                            contact_ptr,
                             contact_active,
                             contact_bonded,
                             forces,
@@ -132,7 +133,7 @@ function resolve_collision!(contacts,
     index = (blockIdx().x - 1) * blockDim().x + threadIdx().x
     stride = gridDim().x * blockDim().x
     n = length(grains)
-    for idx in index:stride:total_contacts
+    for idx in index:stride:contact_ptr[1]
         i = contacts[idx].i
         j = contacts[idx].j
         ij = UInt64(i - 1) * n + j
@@ -216,6 +217,7 @@ function resolve_collision!(contacts,
             if σ𝑐 >= surfaces[midᵢ, midⱼ].σ𝑐 ||
                σ𝑡 >= surfaces[midᵢ, midⱼ].σ𝑡 ||
                σ𝑠 >= surfaces[midᵢ, midⱼ].σ𝑠
+                CUDA.atomic_add!(pointer(contact_ptr, 2), UInt32(1))
                 clear_bit!(contact_active, ij)
                 clear_bit!(contact_bonded, ij)
             else
@@ -497,7 +499,7 @@ function remove_inactive_contact!(contacts,
         ij = UInt64(i - 1) * n + j
 
         if get_bit(contact_active, ij)
-            offset = CUDA.atomic_add!(pointer(contact_ptr), UInt32(1)) + 1
+            offset = CUDA.atomic_add!(pointer(contact_ptr, 1), UInt32(1)) + 1
             contacts_temp[offset] = contacts[idx]
         end
     end

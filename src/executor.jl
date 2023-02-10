@@ -95,10 +95,10 @@ function contact!(g::GlobalData, threads; domain_min, cell_size, hash_table_size
                                                                               g.grains)
 
         # Resolve collision
-        total_contacts = CUDA.@allowscalar g.contact_ptr[1]
-        if total_contacts > 0
+        total_contacts, inactive_contacts = Array(g.contact_ptr)
+        if total_contacts - inactive_contacts > 0
             @cuda threads=threads blocks=cld(total_contacts, threads) resolve_collision!(g.contacts,
-                                                                                         total_contacts,
+                                                                                         g.contact_ptr,
                                                                                          g.contact_active,
                                                                                          g.contact_bonded,
                                                                                          g.forces,
@@ -138,9 +138,9 @@ function update!(g::GlobalData, threads; dt)
 end
 
 function late_clear_state!(g::GlobalData, threads)
-    total_contacts = CUDA.@allowscalar g.contact_ptr[1]
+    total_contacts, inactive_contacts = Array(g.contact_ptr)
 
-    if total_contacts > 0
+    if inactive_contacts > 0
         fill!(g.contact_ptr, 0)
         @cuda threads=threads blocks=cld(total_contacts, threads) remove_inactive_contact!(g.contacts,
                                                                                            g.contacts_temp,
@@ -148,14 +148,6 @@ function late_clear_state!(g::GlobalData, threads)
                                                                                            g.contact_active,
                                                                                            total_contacts,
                                                                                            g.grains)
-
-        @debug begin
-            inactive = total_contacts - CUDA.@allowscalar g.contact_ptr[1]
-            if !iszero(inactive)
-                @show Int(inactive)
-            end
-        end
-
         g.contacts, g.contacts_temp = g.contacts_temp, g.contacts
     end
 end
@@ -281,7 +273,7 @@ function solve(cfg_filename; no_bond = false, save_snapshot = false, save_inform
     cp_range = CUDA.zeros(UInt32, n)
     cp_range_current = similar(cp_range)
 
-    contact_ptr = CUDA.zeros(UInt32, 1)
+    contact_ptr = CUDA.zeros(UInt32, 2)
     contacts = CUDA.fill(ContactDefaultZero, n * max_coordinate_number)
     contacts_temp = CUDA.fill(ContactDefaultZero, n * max_coordinate_number)
     contact_active = CUDA.zeros(UInt32, (nextpow(2, n)^2) >> 5)
@@ -391,9 +383,6 @@ function solve(cfg_filename; no_bond = false, save_snapshot = false, save_inform
                         contact_bonded,
                         p4p, p4c, step * dt)
         end
-
-        # total_contacts = CUDA.@allowscalar global_data.contact_ptr[1]
-        # @info "Total contacts: $total_contacts"
     end
 
     if save_information

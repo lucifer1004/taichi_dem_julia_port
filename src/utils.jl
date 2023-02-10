@@ -55,12 +55,10 @@ function save_single(grains, contacts, total_contacts, contact_active, contact_b
         j = contact.j
         ij = UInt64(i - 1) * n + j
         if get_bit(ca, ij)
-            @debug begin
-                if (i, j) in s
-                    error("Duplicate contact pairs!")
-                end
-                push!(s, (i, j))
+            if (i, j) in s
+                error("Duplicate contact pairs!")
             end
+            push!(s, (i, j))
 
             bonded = get_bit(cb, ij)
             𝐤 = contact.𝐤
@@ -79,12 +77,12 @@ function save_single(grains, contacts, total_contacts, contact_active, contact_b
     @info "Checkpoint saved! $(length(cache)) active contacts" Δt
 end
 
-function _snapshot(x, y, z, r)
+function _snapshot(x, y, z, r, pid)
     fig, _ = meshscatter(x,
     y,
     z;
     markersize = r,
-    color = z,
+    color = pid,
     axis = (;
             type = Axis3,
             aspect = :data,
@@ -97,12 +95,13 @@ end
 
 function snapshot(grains, step)
     grains = Array(grains)
+    pid = [g.id for g in grains]
     𝐤 = [g.𝐤 for g in grains]
     x = [k[1] for k in 𝐤]
     y = [k[2] for k in 𝐤]
     z = [k[3] for k in 𝐤]
     r = [g.r for g in grains]
-    fig = _snapshot(x, y, z, r)
+    fig = _snapshot(x, y, z, r, pid)
     save("snapshot_$step.png", fig)
 end
 
@@ -113,12 +112,13 @@ end
 
 function plot_p4p(records::AbstractVector{Tuple{Float64, Vector{IOGrainDefault}}})
     foreach(enumerate(records)) do (i, (_timestep, grains))
+        pid = [g.id for g in grains]
         𝐤 = [g.𝐤 for g in grains]
         x = [k[1] for k in 𝐤]
         y = [k[2] for k in 𝐤]
         z = [k[3] for k in 𝐤]
         r = [∛(g.V / (4 / 3 * π)) for g in grains]
-        fig = _snapshot(x, y, z, r)
+        fig = _snapshot(x, y, z, r, pid)
         save("snapshot_$i.png", fig)
     end
 end
