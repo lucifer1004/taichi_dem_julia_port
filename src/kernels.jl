@@ -407,7 +407,6 @@ function resolve_wall!(wall_contacts,
                 atomic_add_vec3!(forces, 3 * i - 2, 𝐅ᵢ𝑔)
                 atomic_add_vec3!(moments, 3 * i - 2, 𝐤ᵢ × 𝐅ᵢ𝑔)
 
-                # FIXME: This is not used!
                 wall_contacts[j, i] = ContactDefault(i,
                                                      0,
                                                      midᵢ,
