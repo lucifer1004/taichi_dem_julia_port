@@ -7,3 +7,5 @@ snapshot*
 /*.so*
 *.nsys-rep
 local_test
+/writeup.pdf
+/dem_opt.py
