@@ -1,102 +1,23 @@
-# Engineering quantitative DEM simulation using Taichi DEM
+# 说明
 
-Won the 1st prize and most popular prize in Taichi DEM code optimization competition! See: https://forum.taichi-lang.cn/t/topic/2975 (in Chinese)
+> 本文为 Steins; Gate 第零届 PKU HPCGame DEM 赛题 writeup，此文由本团队原创。
 
-A complete implementation of DEM in Taichi Lang from engineering perspective.
+## 运行说明
 
-![](Demos/carom/carom.gif)
-![](Demos/cube_911_particles_impact/cube_911_particles_impact.gif)
-![](Demos/cube_18112_particles_impact/cube_18112_particles_impact.gif)
+- 本程序使用 Julia 语言编写，在 Julia 1.9.0-beta.3 版本下进行了测试。
+- 在 HPC 上运行的脚本已经写在 `Makefile` 中，可以直接使用 `make hpc` 命令来配置环境并运行程序。
 
->Visualized using BIMBase (TM) with secondary development. BIMBase (TM) is a graphical platform aimed for BIM developed by Beijing Glory PKPM Technology Co., Ltd. https://app.pkpm.cn/pbims
+## 关键优化
 
-![](Demos/bunny/bunny.gif)
+原程序都是按照颗粒来并行计算的，但颗粒之间的接触数可能有很大的差别，这就造成了运行时间的浪费。在我们的这一优化实现中，对两个关键步骤的并行方式进行了改进：
 
-![](Demos/soft_bunny/soft_bunny.gif)
+- 在遍历宽检测结果（也即 `cp_list`）时，直接对每一个宽检测的颗粒对进行并行计算。原程序中只保存了颗粒对的 `j`，这里因为我们不再对颗粒进行并行，所以需要在 `cp_list` 中同时保存颗粒对的 `i`，也即 `cp_list` 中的每一项变为了一个二元组，分别保存 `i` 和 `j`。
+- 在遍历接触时，对每一个接触进行并行计算。这里的改动较大。原程序相当于是用一个二维数组来保存接触，从而实现颗粒级别的并行。这里我们将其改为了一维数组，用一个指针来维护当前的偏置，在遍历宽检测结果时，用原子操作更新这一指针，从而得到一个不包含空隙的接触数组，以便进行并行计算。
+  - 接触的 `active` 和 `bonded` 状态各使用一个全局的 `BitTable` 来维护。
+  - 在每一时间步的最后，清理无效接触时，我们采用了滚动数组的方法。原接触对保存在 `contacts` 中，同时有一个临时数组 `contacts_temp`。采用与前面类似的方法，用一个指针维护临时数组当前的偏置，用原子操作更新指针，并行将仍然有效的接触复制到临时数组中。最后将 `contacts` 和 `contacts_temp` 交换，这样就完成了清理。
+  - 增加了一个变量来记录每个时间步中失效的接触，如果在某一个时间步中没有接触失效，就不需要进行清理。
 
-![](Demos/bunny_fast/bunny_fast.gif)
+## 其他差异
 
->Visualized using Houdini (TM). Houdini (TM) is an effect software with flexible workflows which are friendly to users. https://www.sidefx.com/products/houdini
-
-## Authors
-Denver Pilphis (Di Peng) - DEM theory and implementation
-
-MuGdxy (Xinyu Lu) - Performance optimization
-
-## Introducion
-This instance provides a complete implementation of discrete element method (DEM) for simulation.
-Complex DEM mechanics are considered and the result is engineering quantitative.
-The efficiency of computation is guaranteed by Taichi, along with proper arrangements of data and algorithms.
-
-To run the demo:
-
-```bash
-$ python dem.py
-```
-
-You may need to modify parameters before you run. See the comments in `dem.py`.
-
-## Features
-Compared with initial version, this instance has added the following features:
-
-1.  2D DEM to 3D DEM;
-2.  Particle orientation and rotation are fully considered and implemented, in which the possibility for modeling nonspherical particles is reserved;
-3.  Wall (geometry in DEM) element is implemented, particle-wall contact is solved;
-4.  Complex DEM contact model is implemented, including a bond model (Edinburgh Bonded Particle Model, EBPM) and a granular contact model (Hertz-Mindlin Contact Model);
-5.  As a bond model is implemented, nonspherical particles can be simulated with bonded agglomerates;
-6.  As a bond model is implemented, particle breakage can be simulated;
-7.  Material properties are associated with particles / walls to reduce the space cost;
-8.  Surface interaction properties are associated with contacts to reduce the space cost;
-9.  Spatial hash table is implemented based on Morton code for neighboring search (broad phase collision
-    detection);
-10. Neighboring pairs are stored to reduce the divergence within the kernel and thus increase the efficiency of parallel computing, in which bit table and parallel scan algorithm are adopted for low and high workloads respectively;
-11. Contacts are stored via the dynamic list linked to each particle to reduce the space cost, and the list is maintained (including appending and removing contacts) during every time step.
-
-## Demos
-### Carom billiards
-This demo performs the first stage of carom billiards. The white ball goes towards other balls and collision
-occurs soon. Then the balls scatter. Although there is energy loss, all the balls will never stop as they
-enter the state of pure rotation and no rolling resistance is available to dissipate the rotational kinematic
-energy. This could be a good example of validating Hertz-Mindlin model.
-
-![](Demos/carom/carom.gif)
-
-### Cubic bonded agglomerate with 911 particles impact on a flat surface
-This demo performs a bonded agglomerate with cubed shape hitting on a flat surface.
-The bonds within the agglomerate will fail while the agglomerate is hitting the surface.
-Then the agglomerate will break into fragments, flying to the surrounding space.
-This could be a good example of validating EBPM.
-
-![](Demos/cube_911_particles_impact/cube_911_particles_impact.gif)
-
-### Cubic bonded agglomerate with 18112 particles impact on a flat surface
-This demo is similar to the one above, with the only difference of particle number.
-This could be a good example of benchmark on large system simulation.
-
-![](Demos/cube_18112_particles_impact/cube_18112_particles_impact.gif)
-
-### Stanford bunny free fall
-This demo contains a Stanford bunny shaped bonded agglomerate falling in gravity and hitting on the horizontal surface.
-The breakage of the bunny is demonstrated.
-This could be a good example of benchmark on large system simulation.
-
-![](Demos/bunny/bunny.gif)
-
-### Soft Stanford bunny free fall
-This demo contains a Stanford bunny shaped bonded agglomerate falling
-in gravity and hitting on the flat surface.
-The bunny will not break as the strength of the bond is extremely high;
-instead, the bunny will experience a very soft mechanical behavior
-as the elastic modulus of the bond is relatively low.
-This could be a good example of comparison to the demo above.
-
-![](Demos/soft_bunny/soft_bunny.gif)
-
-### Stanford bunny free fall (fast)
-This demo is a fast version of Stanford bunny free fall for final testing in PKU HPC competition.
-
-![](Demos/bunny_fast/bunny_fast.gif)
-
-## Acknowledgements
-Associate Prof. Xizhong Chen from School of Chemistry and Chemical Engineering,
-Shanghai Jiao Tong University (https://scce.sjtu.edu.cn/teachers/3196.html, in Chinese) is acknowledged.
+- `CUDA.jl` 支持直接对数组进行并行的 `accumulate`，不需要自行实现并行前缀和。
+- `Mortan.jl` 计算结果遵循了 Julia 下标从 `1` 开始的规范。因此 `cartesian3mortan([2,3,4])` 的结果等于原版的 `mortan3d32(1, 2, 3) + 1`。
